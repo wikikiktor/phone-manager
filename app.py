@@ -73,26 +73,21 @@ class APP(tk.Tk):
         self.build_ui()
         self.load_phone_list()
 
-    def create_widgets(self):
-        self.tree = ttk.Treeview(self, columns=("ID", "Model", "Nr Tel", "Nr SIM", "IMEI", "Nr Seryjny", "Rodzaj", "Osoba Użytk.", "Osoba Odp."), show="headings")
-        for col in self.tree["columns"]:
-            self.tree.heading(col, text=col)
-            self.tree.column(col, width=100)
-        self.tree.pack(fill=tk.BOTH, expand=True)
+    def build_ui(self):
+        print("test1")
+    def load_phone_list(self):
+        print("test2")
+    def on_phone_select(self, event):
+        print("test3")
+    def prepare_new_phone(self):
+        print("test4")
+    def save_phone(self):
+        print("test5")
+    def delete_phone(self):
+        print("test6")
+    def open_add_event_popup(self):
+        print("test7")
 
-        self.add_button = tk.Button(self, text="Dodaj Telefon", command=self.add_telefon)
-        self.add_button.pack(pady=10)
-
-    def populate_treeview(self):
-        for row in self.tree.get_children():
-            self.tree.delete(row)
-
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM telefony")
-        for row in cursor.fetchall():
-            self.tree.insert("", tk.END, values=row)
-        conn.close()
-
-    def add_telefon(self):
-        AddTelefonWindow(self)
+if __name__ == "__main__":
+    app = APP()
+    app.mainloop()
