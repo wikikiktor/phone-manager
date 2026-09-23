@@ -75,36 +75,144 @@ class APP(tk.Tk):
         self.load_phone_list()
 
     def build_ui(self):
-        self.phone_list_frame = ttk.Frame(self)
-        self.phone_list_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # Górny pasek: wyszukiwarka + przycisk nowego telefonu
+        top_bar = ttk.Frame(self, padding=10)
+        top_bar.pack(fill=tk.X)
 
-        self.phone_list = ttk.Treeview(self.phone_list_frame, columns=("model", "nr_tel", "nr_sim", "imei", "nr_seryjny", "rodzaj", "osoba_uzytkujaca", "osoba_odpowiedzialna"), show="headings")
-        self.phone_list.heading("model", text="Model")
-        self.phone_list.heading("nr_tel", text="Nr Tel")
-        self.phone_list.heading("nr_sim", text="Nr SIM")
-        self.phone_list.heading("imei", text="IMEI")
-        self.phone_list.heading("nr_seryjny", text="Nr Seryjny")
-        self.phone_list.heading("rodzaj", text="Rodzaj")
-        self.phone_list.heading("osoba_uzytkujaca", text="Osoba Użytk. ")
-        self.phone_list.heading("osoba_odpowiedzialna", text="Osoba Odpow.")
-        self.phone_list.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(
+            top_bar, text="Szukaj (nr, model, użytkownik, IMEI):"
+        ).pack(side=tk.LEFT, padx=5)
+        self.search_var = tk.StringVar()
+        self.search_var.trace_add(
+            "write", lambda *args: self.load_phone_list()
+        )
+        search_entry = ttk.Entry(
+            top_bar, textvariable=self.search_var, width=35
+        )
+        search_entry.pack(side=tk.LEFT, padx=5)
 
-        self.phone_list.bind("<Double-1>", self.on_phone_select)
+        ttk.Button(
+            top_bar, text="+ Nowy telefon", command=self.prepare_new_phone
+        ).pack(side=tk.RIGHT, padx=5)
 
-        self.details_frame = ttk.Frame(self)
-        self.details_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        # Główny podział: Lewo (Lista) / Prawo (Szczegóły)
+        main_paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
+        main_paned.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
-        # Add labels and entry fields for phone details
-        labels = ["Model:", "Nr Tel:", "Nr SIM:", "IMEI:", "Nr Seryjny:", "Rodzaj:", "Osoba Użytk.:", "Osoba Odpow.:"]
+        # --- LEWY PANEL (Lista urządzeń) ---
+        left_frame = ttk.Frame(main_paned, width=380)
+        main_paned.add(left_frame, weight=1)
+
+        cols = ("nr_tel", "uzytkownik", "model")
+        self.tree = ttk.Treeview(
+            left_frame, columns=cols, show="headings", selectmode="browse"
+        )
+        self.tree.heading("nr_tel", text="Nr telefonu")
+        self.tree.heading("uzytkownik", text="Użytkownik")
+        self.tree.heading("model", text="Model")
+        self.tree.column("nr_tel", width=105)
+        self.tree.column("uzytkownik", width=120)
+        self.tree.column("model", width=120)
+
+        scrollbar = ttk.Scrollbar(
+            left_frame, orient=tk.VERTICAL, command=self.tree.yview
+        )
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree.pack(fill=tk.BOTH, expand=True)
+        self.tree.bind("<<TreeviewSelect>>", self.on_phone_select)
+
+        # --- PRAWY PANEL (Szczegóły + Historia) ---
+        right_frame = ttk.Frame(main_paned)
+        main_paned.add(right_frame, weight=2)
+
+        # Sekcja 1: Dane bieżące
+        details_box = ttk.LabelFrame(
+            right_frame, text="Dane bieżące telefonu", padding=10
+        )
+        details_box.pack(fill=tk.X, padx=5, pady=5)
+
+        # Pola formularza
         self.entries = {}
-        
-        for i, label in enumerate(labels):
-            ttk.Label(self.details_frame, text=label).grid(row=i, column=0, sticky=tk.W, padx=5, pady=5)
-            entry = ttk.Entry(self.details_frame)
-            entry.grid(row=i, column=1, sticky=tk.EW, padx=5, pady=5)
-            self.entries[label[:-1].lower().replace(" ", "_")] = entry
+        fields = [
+            ("Model tel:", "model", 0, 0),
+            ("Nr telefonu:", "nr_tel", 0, 2),
+            ("Nr SIM:", "nr_sim", 1, 0),
+            ("Nr IMEI:", "imei", 1, 2),
+            ("Nr seryjny:", "nr_seryjny", 2, 0),
+            ("Rodzaj użytkowania:", "rodzaj", 2, 2),
+            ("Osoba użytkująca:", "osoba_uzytkujaca", 3, 0),
+            ("Osoba odpowiedzialna:", "osoba_odpowiedzialna", 3, 2),
+        ]
 
-        
+        for label_text, key, r, c in fields:
+            ttk.Label(details_box, text=label_text).grid(
+                row=r, column=c, sticky=tk.W, padx=5, pady=3
+            )
+            if key == "rodzaj":
+                ent = ttk.Combobox(
+                    details_box,
+                    values=[
+                        "Służbowy",
+                        "Mieszany",
+                        "Dyżurny",
+                        "Magazyn / Rezerwa",
+                    ],
+                )
+            else:
+                ent = ttk.Entry(details_box, width=28)
+            ent.grid(row=r, column=c + 1, sticky=tk.EW, padx=5, pady=3)
+            self.entries[key] = ent
+
+        details_box.columnconfigure(1, weight=1)
+        details_box.columnconfigure(3, weight=1)
+
+        # Przyciski akcji dla danych telefonu
+        btn_bar = ttk.Frame(details_box)
+        btn_bar.grid(row=4, column=0, columnspan=4, pady=10, sticky=tk.E)
+
+        self.btn_delete = ttk.Button(
+            btn_bar, text="Usuń telefon", command=self.delete_phone
+        )
+        self.btn_delete.pack(side=tk.LEFT, padx=5)
+
+        self.btn_save = ttk.Button(
+            btn_bar, text="Zapisz zmiany", command=self.save_phone
+        )
+        self.btn_save.pack(side=tk.LEFT, padx=5)
+
+        # Sekcja 2: Historia i uwagi
+        history_box = ttk.LabelFrame(
+            right_frame, text="Dziennik zdarzeń i uwagi", padding=10
+        )
+        history_box.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        h_top = ttk.Frame(history_box)
+        h_top.pack(fill=tk.X, pady=(0, 5))
+        ttk.Button(
+            h_top, text="+ Dodaj wpis / uwagę", command=self.open_add_event_popup
+        ).pack(side=tk.RIGHT)
+
+        self.history_tree = ttk.Treeview(
+            history_box,
+            columns=("data", "kategoria", "opis"),
+            show="headings",
+            selectmode="browse",
+        )
+        self.history_tree.heading("data", text="Data")
+        self.history_tree.heading("kategoria", text="Kategoria")
+        self.history_tree.heading("opis", text="Opis zdarzenia / uwagi")
+        self.history_tree.column("data", width=120, stretch=False)
+        self.history_tree.column("kategoria", width=110, stretch=False)
+        self.history_tree.column("opis", width=300)
+
+        h_scroll = ttk.Scrollbar(
+            history_box, orient=tk.VERTICAL, command=self.history_tree.yview
+        )
+        self.history_tree.configure(yscrollcommand=h_scroll.set)
+        h_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.history_tree.pack(fill=tk.BOTH, expand=True)
+
     def load_phone_list(self):
         search = f"%{self.search_var.get().strip()}"
         conn = sqlite3.connect(DB_NAME)
@@ -130,7 +238,7 @@ class APP(tk.Tk):
                             )
 
     def on_phone_select(self, event):
-        selected = self.phone_list.selection()
+        selected = self.tree.selection()
         if not selected:
             return
         phone_id = int(selected[0])
@@ -264,7 +372,7 @@ class APP(tk.Tk):
         conn.commit()
         conn.close()
 
-        self.load_phone_list
+        self.load_phone_list()
         self.tree.selection_set(str(self.selected_phone_id))
 
     def delete_phone(self):
