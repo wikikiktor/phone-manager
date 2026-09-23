@@ -268,11 +268,104 @@ class APP(tk.Tk):
         self.tree.selection_set(str(self.selected_phone_id))
 
     def delete_phone(self):
-        print("cos4")
+        if not self.selected_phone_id:
+            messagebox.showwarning(
+                "Wybierz telefon", "Nie wybrano telefonu do usunięcia."
+            )
+            return
+
+        if messagebox.askyesno(
+            "Potwierdzenie", "Czy na pewno chcesz usunąć ten telefon i całą jego historię?"
+        ):
+            conn = sqlite3.connect(DB_NAME)
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM historia WHERE telefon_id = ?", 
+                (self.selected_phone_id,)
+            )
+            cursor.execute(
+                "DELETE FROM telefony WHERE id = ?", 
+                (self.selected_phone_id,)
+            )
+            conn.commit()
+            conn.close()
+
+            messagebox.showinfo("Sukces", "Telefon został usunięty z bazy.")
+            self.prepare_new_phone()
+            self.load_phone_list()
+
     def open_add_event_popup(self):
-        print("cos5")
-    def save_event(self):
-        print("cos6")
+        if not self.selected_phone_id:
+            messagebox.showwarning(
+            "Wybierz telefon", 
+            "Wybierz lub zapisz telefon przed dodaniem zdarzenia."
+            )
+            return
+
+        popup = tk.Toplevel(self)
+        popup.title("Dodaj zdarzenie / uwagę")
+        popup.geometry("450x300")
+        popup.transient(self)
+        popup.grab_set()
+
+        ttk.Label(popup, text="Kategoria:").pack(anchor=tk.W, padx=15, pady=(15,2))
+        cat_combo = ttk.Combobox(
+            popup,
+            values=[
+                "Notatka / Uwaga",
+                "Zmiana użytkownika",
+                "Awaria / Serwis",
+                "Wydanie",
+                "Zwrot",
+                "Wymiana karty SIM",
+                "Inne",
+            ],
+            state="readonly",
+            )
+        cat_combo.set("Notatka / Uwaga")
+        cat_combo.pack(fill=tk.X, padx=15)
+
+        ttk.Label(popup, text="Opis zdarzenia / uwagi:").pack(
+            anchor=tk.W, padx=15, pady=(10,2)
+        )
+        txt = tk.Text(popup, height=5, wrap=tk.WORD)
+        txt.pack(fill=tk.both,expand=True, padx=15, pady=5)
+        txt.focus()
+        
+        def save_event():
+            opis = txt.get("1.0", tk.END).strip()
+            if not opis:
+                messagebox.showwarning(
+                    "Puste pole", 
+                    "Wpisz treść zdarzenia lub uwagi."
+                )
+                return
+
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+            conn = sqlite3.connect(DB_NAME)
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO historia (telefon_id, data, kategoria, opis)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    self.selected_phone_id,
+                    now_str,
+                    cat_combo.get(),
+                    opis,
+                ),
+            )
+            conn.commit()
+            conn.close()
+
+            popup.destroy()
+            self.on_phone_select(None)
+
+        ttk.Button(popup, text="Zapisz wpis", command=save_event).pack(
+            pady=10, padx=15, anchor=tk.E
+        )
+        
 
 if __name__ == "__main__":
     app = APP()
