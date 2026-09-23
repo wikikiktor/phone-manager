@@ -178,9 +178,95 @@ class APP(tk.Tk):
             self.history_tree.insert("", tk.END, values=history_row)
 
     def prepare_new_phone(self):
-        print("cos2")
+        self.selected_phone_id = None
+        self.tree.selection_remove(*self.tree.selection())
+        for entry in self.entries.values():
+            entry.delete(0, tk.END)
+        self.history_tree.delete(*self.history_tree.get_children())
+        self.entries["model"].focus()
+
     def save_phone(self):
-        print("cos3")
+        data = {k: ent.get().strip() for k, ent in self.entries.items()}
+        if not data["model"] or not data["nr_tel"]:
+            messagebox.showwarning(
+                "Błąd", "Model i Nr Tel są wymagane."
+            )
+            return
+
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        if self.selected_phone_id is None:
+            cursor.execute(
+                """
+                INSERT INTO telefony (model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    data["model"],
+                    data["nr_tel"],
+                    data["nr_sim"],
+                    data["imei"],
+                    data["nr_seryjny"],
+                    data["rodzaj"],
+                    data["osoba_uzytkujaca"],
+                    data["osoba_odpowiedzialna"],
+                ),
+            )
+            self.selected_phone_id = cursor.lastrowid
+
+            cursor.execute(
+                """
+                INSERT INTO historia (telefon_id, data, kategoria, opis)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    self.selected_phone_id,
+                    datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "Dodanie do bazy",
+                    "Zarejestrowano urządzenie w systemie.",
+                ),
+            )
+            messagebox.showinfo("Sukces", "Telefon został dodany do bazy.")
+        else:
+            cursor.execute(
+                """
+                UPDATE telefony
+                SET model = ?, nr_tel = ?, nr_sim = ?, imei = ?, nr_seryjny = ?, rodzaj = ?, osoba_uzytkujaca = ?, osoba_odpowiedzialna = ?
+                WHERE id = ?
+                """,
+                (
+                    data["model"],
+                    data["nr_tel"],
+                    data["nr_sim"],
+                    data["imei"],
+                    data["nr_seryjny"],
+                    data["rodzaj"],
+                    data["osoba_uzytkujaca"],
+                    data["osoba_odpowiedzialna"],
+                    self.selected_phone_id,
+                ),
+            )
+            cursor.execute(
+                """
+                INSERT INTO historia (telefon_id, data, kategoria, opis)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    self.selected_phone_id,
+                    datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "Edycja danych",
+                    "Zaktualizowano dane urządzenia.",
+                ),
+            )
+            messagebox.showinfo("Sukces", "Dane telefonu zostały zaktualizowane.")
+
+        conn.commit()
+        conn.close()
+
+        self.load_phone_list
+        self.tree.selection_set(str(self.selected_phone_id))
+
     def delete_phone(self):
         print("cos4")
     def open_add_event_popup(self):
