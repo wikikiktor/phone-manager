@@ -241,3 +241,50 @@ def add_history_entry(phone_id, category, description):
                 description,
             ),
         )
+
+def bulk_insert_phones(phone_records):
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    inserted_count = 0
+
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        for data in phone_records:
+            model = (data.get("model") or "").strip()
+            nr_tel = (data.get("nr_tel") or "").strip()
+
+            if not model or not nr_tel:
+                continue
+
+            cursor.execute(
+                """
+                INSERT INTO telefony (model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    model,
+                    nr_tel,
+                    (data.get("nr_sim") or "").strip(),
+                    (data.get("imei") or "").strip(),
+                    (data.get("nr_seryjny") or "").strip(),
+                    (data.get("rodzaj") or "").strip(),
+                    (data.get("osoba_uzytkujaca") or "").strip(),
+                    (data.get("osoba_odpowiedzialna") or "").strip(),
+                ),
+            )
+            phone_id = cursor.lastrowid
+
+            cursor.execute(
+                """
+                INSERT INTO historia (telefon_id, data, kategoria, opis)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    phone_id,
+                    now_str,
+                    "Dodanie do bazy",
+                    "Zarejestrowano urządzenie w systemie.",
+                ),
+            )
+            inserted_count += 1
+
+    return inserted_count

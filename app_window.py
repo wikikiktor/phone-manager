@@ -1,8 +1,8 @@
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 import db
-from dialogs import AddEventDialog
+from dialogs import AddEventDialog, ExcelImportDialog
 
 
 class APP(tk.Tk):
@@ -29,6 +29,8 @@ class APP(tk.Tk):
         search_entry.pack(side=tk.LEFT, padx=5)
 
         ttk.Button(top_bar, text="+ Nowy telefon", command=self.prepare_new_phone).pack(side=tk.RIGHT, padx=5)
+
+        ttk.Button(top_bar, text="Importuj z Excela", command=self.open_excel_import).pack(side=tk.RIGHT, padx=5)
 
         # Główny podział
         main_paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
@@ -205,3 +207,13 @@ class APP(tk.Tk):
             return
 
         AddEventDialog(self, self.selected_phone_id, on_save_callback=self.refresh_selected_details)
+
+    def open_excel_import(self):
+        file_path = filedialog.askopenfilename(
+            title="Wybierz plik Excel do importu",
+            filetypes=[("Excel files", "*.xlsx *.xls *.xlsm"), ("All files", "*.*")],
+        )
+        if not file_path:
+            return
+
+        ExcelImportDialog(self, file_path, on_success_callback=self.load_phone_list)
