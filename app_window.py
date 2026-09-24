@@ -186,6 +186,7 @@ class APP(tk.Tk):
 
         self.load_phone_list()
         self.tree.selection_set(str(self.selected_phone_id))
+        self.refresh_selected_details()
 
     def delete_phone(self):
         if not self.selected_phone_id:

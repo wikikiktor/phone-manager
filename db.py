@@ -140,8 +140,44 @@ def insert_phone(data):
         return phone_id
 
 def update_phone(phone_id, data):
+    labels = {
+        "model": "Model",
+        "nr_tel": "Nr telefonu",
+        "nr_sim": "Nr SIM",
+        "imei": "IMEI",
+        "nr_seryjny": "Nr seryjny",
+        "rodzaj": "Rodzaj",
+        "osoba_uzytkujaca": "Osoba użytkująca",
+        "osoba_odpowiedzialna": "Osoba odpowiedzialna"
+    }
+
     with get_connection() as conn:
         cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            Select model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna
+            FROM telefony
+            WHERE id = ?
+            """,
+            (phone_id,)
+        )
+        old_row = cursor.fetchone()
+
+        changes = []
+        if old_row:
+            keys = [
+                "model", "nr_tel", "nr_sim", "imei",
+                "nr_seryjny", "rodzaj", "osoba_uzytkujaca", "osoba_odpowiedzialna"
+            ]
+            for i, key in enumerate(keys):
+                old_val = (old_row[i] or "").strip()
+                new_val = (data[key] or "").strip()
+                if old_val != new_val:
+                    old = old_val if old_val else "[puste]"
+                    new = new_val if new_val else "[puste]"
+                    changes.append(f"{labels[key]}: '{old}' ➔ '{new}'")
+
         cursor.execute(
             """
             UPDATE telefony
@@ -160,18 +196,23 @@ def update_phone(phone_id, data):
                 phone_id
             )
         )
-        cursor.execute(
-            """
-            INSERT INTO historia (telefon_id, data, kategoria, opis)
-            VALUES (?, ?, ?, ?)
-            """,
-            (
-                phone_id,
-                datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "Edycja danych",
-                "Zaktualizowano dane urządzenia.",
-            ),
-        )
+
+        if changes:
+            opis = "Zmieniono parametry: " + "; ".join(changes)
+            kategoria = "Zmiana użytkownika" if any("Osoba użytkująca" in c for c in changes) else "Edycja danych"
+
+            cursor.execute(
+                """
+                INSERT INTO historia (telefon_id, data, kategoria, opis)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    phone_id,
+                    datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    kategoria,
+                    opis,
+                ),
+            )
 
 def delete_phone_by_id(phone_id):
     with get_connection() as conn:
