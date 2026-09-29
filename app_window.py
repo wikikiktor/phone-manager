@@ -368,7 +368,18 @@ class APP(tk.Tk):
             self.entries["nr_tel"].insert(0, formatted)
 
     def export_to_excel(self):
-        default_filename = f"baza_telefonow_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+        visible_ids = [int(item_id) for item_id in self.tree.get_children()]
+
+        if not visible_ids:
+            messagebox.showwarning(
+                "Brak danych",
+                "Lista jest pusta. Brak wyników do wyeksportowania.",
+            )
+            return
+
+        is_trash = self.show_deleted_var.get()
+        prefix = "kosz" if is_trash else "telefony"
+        default_filename = f"{prefix}_eksport_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
 
         file_path = filedialog.asksaveasfilename(
             title="Wybierz miejsce zapisu pliku Excel",
@@ -380,7 +391,7 @@ class APP(tk.Tk):
             return
 
         try:
-            exported_count = db.export_to_excel(file_path)
+            exported_count = db.export_to_excel(file_path, phone_ids=visible_ids)
             messagebox.showinfo(
                 "Eksport zakończony",
                 f"Pomyślnie wyeksportowano {exported_count} urządzeń wraz z historią do pliku:\n{file_path}",

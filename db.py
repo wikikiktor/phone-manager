@@ -356,7 +356,7 @@ def bulk_insert_phones(phone_records):
 
     return inserted_count
 
-def export_to_excel(file_path):
+def export_to_excel(file_path, phone_ids=None):
     wb = openpyxl.Workbook()
 
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
@@ -381,13 +381,28 @@ def export_to_excel(file_path):
 
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT id, model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna
-            FROM telefony
-            ORDER BY id ASC
-            """
-        )
+
+        if phone_ids is not None:
+            if not phone_ids:
+                return 0
+            placeholders = ",".join("?" for _ in phone_ids)
+            cursor.execute(
+                f"""
+                SELECT id, model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna
+                FROM telefony
+                WHERE id IN ({placeholders})
+                ORDER BY id ASC
+                """,
+                phone_ids,
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT id, model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna
+                FROM telefony
+                ORDER BY id ASC
+                """
+            )
         phone_rows = cursor.fetchall()
     for row in phone_rows:
         ws_phones.append(list(row))
@@ -415,14 +430,27 @@ def export_to_excel(file_path):
 
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT h.data, t.model, t.nr_tel, h.kategoria, h.opis
-            FROM historia h
-            LEFT JOIN telefony t ON h.telefon_id = t.id
-            ORDER BY h.id DESC
-            """
-        )
+        if phone_ids is not None:
+            placeholders = ",".join("?" for _ in phone_ids)
+            cursor.execute(
+                f"""
+                SELECT h.data, t.model, t.nr_tel, h.kategoria, h.opis
+                FROM historia h
+                LEFT JOIN telefony t ON h.telefon_id = t.id
+                WHERE h.telefon_id IN ({placeholders})
+                ORDER BY h.id DESC
+                """,
+                phone_ids,
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT h.data, t.model, t.nr_tel, h.kategoria, h.opis
+                FROM historia h
+                LEFT JOIN telefony t ON h.telefon_id = t.id
+                ORDER BY h.id DESC
+                """
+            )
         hist_rows = cursor.fetchall()
 
     for row in hist_rows:
