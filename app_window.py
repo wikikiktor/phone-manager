@@ -1,4 +1,5 @@
 import tkinter as tk
+from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
 
 import db
@@ -13,6 +14,7 @@ class APP(tk.Tk):
         self.minsize(950, 600)
 
         self.selected_phone_id = None
+        self.show_deleted_var = tk.BooleanVar(value=False)
 
         self.sort_column = None
         self.sort_reverse = False
@@ -35,7 +37,18 @@ class APP(tk.Tk):
         search_entry = ttk.Entry(top_bar, textvariable=self.search_var, width=35)
         search_entry.pack(side=tk.LEFT, padx=5)
 
+        self.chk_trash = ttk.Checkbutton(
+            top_bar,
+            text="Pokaż kosz (usunięte)",
+            variable=self.show_deleted_var,
+            command=self.on_toggle_trash_view,
+        )
+        self.chk_trash.pack(side=tk.LEFT, padx=10)
+        
+
         ttk.Button(top_bar, text="+ Nowy telefon", command=self.prepare_new_phone).pack(side=tk.RIGHT, padx=5)
+
+        ttk.Button(top_bar, text="Eksportuj do Excela", command=self.export_to_excel).pack(side=tk.RIGHT, padx=5)
 
         ttk.Button(top_bar, text="Importuj z Excela", command=self.open_excel_import).pack(side=tk.RIGHT, padx=5)
 
@@ -46,6 +59,15 @@ class APP(tk.Tk):
         # --- LEWY PANEL (Lista urządzeń) ---
         left_frame = ttk.Frame(main_paned, width=380)
         main_paned.add(left_frame, weight=1)
+
+        self.lbl_count = ttk.Label(
+            left_frame, 
+            text="Łącznie telefonów: 0", 
+            anchor=tk.W, 
+            font=("Calibri", 9, "italic"),
+            padding=(6, 6)
+        )
+        self.lbl_count.pack(side=tk.BOTTOM, fill=tk.X)
 
         cols = ("nr_tel", "uzytkownik", "model")
         self.tree = ttk.Treeview(left_frame, columns=cols, show="headings", selectmode="browse")
@@ -109,11 +131,15 @@ class APP(tk.Tk):
         btn_bar = ttk.Frame(details_box)
         btn_bar.grid(row=4, column=0, columnspan=4, pady=10, sticky=tk.E)
 
-        self.btn_delete = ttk.Button(btn_bar, text="Usuń telefon", command=self.delete_phone)
+        self.btn_delete = ttk.Button(btn_bar, text="Przenieś do kosza", command=self.soft_delete_phone)
         self.btn_delete.pack(side=tk.LEFT, padx=5)
 
         self.btn_save = ttk.Button(btn_bar, text="Zapisz zmiany", command=self.save_phone)
         self.btn_save.pack(side=tk.LEFT, padx=5)
+
+        # Przyciski trybu kosza (początkowo ukryte)
+        self.btn_restore = ttk.Button(btn_bar, text="Przywróć telefon", command=self.restore_phone)
+        self.btn_hard_delete = ttk.Button(btn_bar, text="Usuń trwale z bazy", command=self.hard_delete_phone)
 
         # Sekcja 2: Historia i uwagi
         history_box = ttk.LabelFrame(right_frame, text="Dziennik zdarzeń i uwagi", padding=10)
@@ -201,7 +227,8 @@ class APP(tk.Tk):
 
     def load_phone_list(self):
         query = self.search_var.get().strip()
-        rows = db.search_phones(query)
+        is_trash = self.show_deleted_var.get()
+        rows = db.search_phones(query, show_deleted=is_trash)
 
         self.tree.delete(*self.tree.get_children())
         for row in rows:
@@ -212,7 +239,16 @@ class APP(tk.Tk):
                 values=(row[1], row[2] or "[BRAK]", row[3])
             )
 
-        if self.sort_column:
+        total = db.get_phones_count(show_deleted=is_trash)
+
+        shown_phones = len(rows)
+        prefix = "W koszu:" if is_trash else "Łącznie aktywnych:"
+        if query:
+            self.lbl_count.config(text=f"{prefix} znaleziono {len(rows)} z {total}")
+        else:
+            self.lbl_count.config(text=f"{prefix} {total} telefonów")
+
+        if hasattr(self, "sort_column") and self.sort_column:
             self.apply_phone_sorting()
 
     def refresh_selected_details(self):
@@ -253,7 +289,7 @@ class APP(tk.Tk):
     def save_phone(self):
         self._format_phone_entry() 
         data = {k: ent.get().strip() for k, ent in self.entries.items()}
-        
+
         if not data["model"] or not data["nr_tel"]:
             messagebox.showwarning("Błąd", "Model i Nr Tel są wymagane.")
             return
@@ -269,14 +305,41 @@ class APP(tk.Tk):
         self.tree.selection_set(str(self.selected_phone_id))
         self.refresh_selected_details()
 
-    def delete_phone(self):
+    def soft_delete_phone(self):
         if not self.selected_phone_id:
             messagebox.showwarning("Wybierz telefon", "Nie wybrano telefonu do usunięcia.")
             return
 
-        if messagebox.askyesno("Potwierdzenie", "Czy na pewno chcesz usunąć ten telefon i całą jego historię?"):
-            db.delete_phone_by_id(self.selected_phone_id)
-            messagebox.showinfo("Sukces", "Telefon został usunięty z bazy.")
+        if messagebox.askyesno("Potwierdzenie", "Czy na pewno chcesz przenieść ten telefon do kosza?"):
+            db.soft_delete_phone(self.selected_phone_id)
+            messagebox.showinfo("Kosz", "Telefon został przeniesiony do kosza.")
+            self.prepare_new_phone()
+            self.load_phone_list()
+
+    def restore_phone(self):
+        if not self.selected_phone_id:
+            messagebox.showwarning("Wybierz telefon", "Wybierz telefon z kosza, który chcesz przywrócić.")
+            return
+
+        if messagebox.askyesno("Potwierdzenie", "Czy chcesz przywrócić ten telefon do aktywnych urządzeń?"):
+            db.restore_phone(self.selected_phone_id)
+            messagebox.showinfo("Sukces", "Telefon został przywrócony.")
+            self.prepare_new_phone()
+            self.load_phone_list()
+
+    def hard_delete_phone(self):
+        if not self.selected_phone_id:
+            messagebox.showwarning("Wybierz telefon", "Wybierz telefon do trwałego usunięcia.")
+            return
+
+        msg = (
+            "UWAGA: Ta operacja jest NIEODWRACALNA!\n"
+            "Telefon oraz cała jego historia zdarzeń zostaną trwale wykasowane z bazy.\n\n"
+            "Czy na pewno chcesz kontynuować?"
+        )
+        if messagebox.askyesno("Ostrzeżenie", msg, icon=messagebox.WARNING):
+            db.hard_delete_phone(self.selected_phone_id)
+            messagebox.showinfo("Usunięto", "Telefon został trwale wykasowany z bazy.")
             self.prepare_new_phone()
             self.load_phone_list()
 
@@ -303,3 +366,46 @@ class APP(tk.Tk):
         if current != formatted:
             self.entries["nr_tel"].delete(0, tk.END)
             self.entries["nr_tel"].insert(0, formatted)
+
+    def export_to_excel(self):
+        default_filename = f"baza_telefonow_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+
+        file_path = filedialog.asksaveasfilename(
+            title="Wybierz miejsce zapisu pliku Excel",
+            defaultextension=".xlsx",
+            initialfile=default_filename,
+            filetypes=[("Pliki Excel", "*.xlsx"), ("Wszystkie pliki", "*.*")],
+        )
+        if not file_path:
+            return
+
+        try:
+            exported_count = db.export_to_excel(file_path)
+            messagebox.showinfo(
+                "Eksport zakończony",
+                f"Pomyślnie wyeksportowano {exported_count} urządzeń wraz z historią do pliku:\n{file_path}",
+            )
+        except PermissionError:
+            messagebox.showerror(
+            "Błąd zapisu",
+            "Nie można zapisać pliku. Upewnij się, że plik nie jest obecnie otwarty w programie Excel.",
+            )
+        except Exception as e:
+            messagebox.showerror("Błąd eksportu", f"Wystąpił nieoczekiwany błąd:\n{e}")
+
+    def on_toggle_trash_view(self):
+        self.prepare_new_phone()
+        is_trash = self.show_deleted_var.get()
+
+        if is_trash:
+            self.btn_save.pack_forget()
+            self.btn_delete.pack_forget()
+            self.btn_restore.pack(side=tk.LEFT, padx=5)
+            self.btn_hard_delete.pack(side=tk.LEFT, padx=5)
+        else:
+            self.btn_restore.pack_forget()
+            self.btn_hard_delete.pack_forget()
+            self.btn_delete.pack(side=tk.LEFT, padx=5)
+            self.btn_save.pack(side=tk.LEFT, padx=5)
+        
+        self.load_phone_list()

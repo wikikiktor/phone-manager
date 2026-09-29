@@ -2,6 +2,10 @@ import re
 import sqlite3
 from datetime import datetime
 
+import openpyxl
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+
 DB_NAME = "telefony.db"
 
 def get_connection():
@@ -50,6 +54,11 @@ def init_db():
             FOREIGN KEY (telefon_id) REFERENCES telefony (id)
         )''')
 
+    try:
+        cursor.execute("ALTER TABLE telefony ADD COLUMN czy_usuniety INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
     cursor.execute("SELECT COUNT(*) FROM telefony")
     if cursor.fetchone()[0] == 0:
         cursor.execute("""
@@ -71,7 +80,7 @@ def init_db():
             INSERT INTO historia (telefon_id, data, kategoria, opis)
             VALUES (?, ?, ?, ?)
         ''', (tel_id, 
-              datetime.now().strftime("%Y-%m-%d %H:%M"), 
+              datetime.now().strftime("%Y-%m-%d %H:%M"),  # noqa: DTZ005
               "Dodanie", 
               "Telefon dodany do bazy danych",
               ),)
@@ -79,24 +88,28 @@ def init_db():
     conn.commit()
     conn.close()
 
-def search_phones(query_str):
+def search_phones(query_str, show_deleted=False):
     search = f"%{query_str}%"
     clean_digits = re.sub(r"\D", "", query_str)
     digits_search = f"%{clean_digits}%" if clean_digits else search
+    deleted_flag = 1 if show_deleted else 0
 
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
             SELECT id, nr_tel, osoba_uzytkujaca, model FROM telefony
-            WHERE nr_tel LIKE ?
-            OR REPLACE(nr_tel, '-', '') LIKE ? 
-            OR osoba_uzytkujaca LIKE ? 
-            OR model LIKE ? 
-            OR imei LIKE ?
+            WHERE (
+                nr_tel LIKE ?
+                OR REPLACE(nr_tel, '-', '') LIKE ? 
+                OR osoba_uzytkujaca LIKE ? 
+                OR model LIKE ? 
+                OR imei LIKE ?
+            )
+            AND czy_usuniety = ?
             ORDER BY id DESC
             """,
-            (search, digits_search, search, search, search)
+            (search, digits_search, search, search, search, deleted_flag)
         )
         return cursor.fetchall()
 
@@ -156,7 +169,7 @@ def insert_phone(data):
             """,
             (
                 phone_id,
-                datetime.now().strftime("%Y-%m-%d %H:%M"),
+                datetime.now().strftime("%Y-%m-%d %H:%M"),  # noqa: DTZ005
                 "Dodanie do bazy",
                 "Zarejestrowano urządzenie w systemie.",
             ),
@@ -164,6 +177,8 @@ def insert_phone(data):
         return phone_id
 
 def update_phone(phone_id, data):
+    data["nr_tel"]= format_phone_number(data.get("nr_tel", ""))
+    
     labels = {
         "model": "Model",
         "nr_tel": "Nr telefonu",
@@ -173,6 +188,13 @@ def update_phone(phone_id, data):
         "rodzaj": "Rodzaj",
         "osoba_uzytkujaca": "Osoba użytkująca",
         "osoba_odpowiedzialna": "Osoba odpowiedzialna"
+    }
+
+    category_map = {
+        "osoba_uzytkujaca": "Zmiana użytkownika",
+        "osoba_odpowiedzialna": "Zmiana odpowiedzialnego",
+        "nr_sim": "Wymiana karty SIM",
+        "rodzaj": "Zmiana statusu/rodzaju",
     }
 
     with get_connection() as conn:
@@ -187,20 +209,6 @@ def update_phone(phone_id, data):
             (phone_id,)
         )
         old_row = cursor.fetchone()
-
-        changes = []
-        if old_row:
-            keys = [
-                "model", "nr_tel", "nr_sim", "imei",
-                "nr_seryjny", "rodzaj", "osoba_uzytkujaca", "osoba_odpowiedzialna"
-            ]
-            for i, key in enumerate(keys):
-                old_val = (old_row[i] or "").strip()
-                new_val = (data[key] or "").strip()
-                if old_val != new_val:
-                    old = old_val if old_val else "[puste]"
-                    new = new_val if new_val else "[puste]"
-                    changes.append(f"{labels[key]}: '{old}' ➔ '{new}'")
 
         cursor.execute(
             """
@@ -217,28 +225,62 @@ def update_phone(phone_id, data):
                 data["rodzaj"],
                 data["osoba_uzytkujaca"],
                 data["osoba_odpowiedzialna"],
-                phone_id
-            )
+                phone_id,
+            ),
         )
 
-        if changes:
-            opis = "Zmieniono parametry: " + "; ".join(changes)
-            kategoria = "Zmiana użytkownika" if any("Osoba użytkująca" in c for c in changes) else "Edycja danych"
+        if old_row:
+            keys = [
+                "model", "nr_tel", "nr_sim", "imei",
+                "nr_seryjny", "rodzaj", "osoba_uzytkujaca", "osoba_odpowiedzialna"
+            ]
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M")  # noqa: DTZ005
+            
+            for i, key in enumerate(keys):
+                old_val = (old_row[i] or "").strip()
+                new_val = (data[key] or "").strip()
+                
+                if old_val != new_val:
+                    old = old_val if old_val else "[puste]"
+                    new = new_val if new_val else "[puste]"
+                    kategoria = category_map.get(key, "Edycja danych")
+                    opis = f"Zmieniono {labels[key]}: '{old}' ➔ '{new}'"
 
+                    cursor.execute(
+                        """
+                        INSERT INTO historia (telefon_id, data, kategoria, opis)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (phone_id, now_str, kategoria, opis),
+                    )
+
+def soft_delete_phone(phone_id):
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE telefony SET czy_usuniety = 1 WHERE id = ?", (phone_id,))
+        cursor.execute(
+            """
+            INSERT INTO historia (telefon_id, data, kategoria, opis)
+            VALUES (?, ?, ?, ?)
+            """,
+            (phone_id, now_str, "Kosz / Usunięcie", "Telefon przeniesiono do kosza (usunięto z aktywnej listy)."),
+        )
+
+def restore_phone(phone_id):
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE telefony SET czy_usuniety = 0 WHERE id = ?", (phone_id,))
             cursor.execute(
                 """
                 INSERT INTO historia (telefon_id, data, kategoria, opis)
                 VALUES (?, ?, ?, ?)
                 """,
-                (
-                    phone_id,
-                    datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    kategoria,
-                    opis,
-                ),
+                (phone_id, now_str, "Przywrócenie", "Przywrócono urządzenie z kosza do aktywnych."),
             )
 
-def delete_phone_by_id(phone_id):
+def hard_delete_phone(phone_id):
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -260,14 +302,15 @@ def add_history_entry(phone_id, category, description):
             """,
             (
                 phone_id,
-                datetime.now().strftime("%Y-%m-%d %H:%M"),
+                datetime.now().strftime("%Y-%m-%d %H:%M"),  # noqa: DTZ005
                 category,
                 description,
             ),
         )
 
 def bulk_insert_phones(phone_records):
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")  # noqa: DTZ005
     inserted_count = 0
 
     with get_connection() as conn:
@@ -312,3 +355,111 @@ def bulk_insert_phones(phone_records):
             inserted_count += 1
 
     return inserted_count
+
+def export_to_excel(file_path):
+    wb = openpyxl.Workbook()
+
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")  # Elegancki granat
+    thin_border = Border(
+        left=Side(style="thin", color="D9D9D9"),
+        right=Side(style="thin", color="D9D9D9"),
+        top=Side(style="thin", color="D9D9D9"),
+        bottom=Side(style="thin", color="D9D9D9"),
+    )
+    center_align = Alignment(horizontal="center", vertical="center")
+    left_align = Alignment(horizontal="left", vertical="center")
+
+    ws_phones = wb.active
+    ws_phones.title = "Telefony"
+
+    headers_phones = [
+        "ID", "Model telefonu", "Numer telefonu", "Numer SIM",
+        "IMEI", "Numer seryjny", "Rodzaj", "Osoba użytkująca", "Osoba odpowiedzialna"
+    ]
+    ws_phones.append(headers_phones)
+
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna
+            FROM telefony
+            ORDER BY id ASC
+            """
+        )
+        phone_rows = cursor.fetchall()
+    for row in phone_rows:
+        ws_phones.append(list(row))
+
+    for col_idx, cell in enumerate(ws_phones[1], start=1):
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center_align
+
+    for row in ws_phones.iter_rows(min_row=2, max_row=ws_phones.max_row, min_col=1, max_col=len(headers_phones)):
+        for cell in row:
+            cell.border = thin_border
+            # ID, nr_tel, SIM, IMEI wyśrodkowane, reszta do lewej
+            if cell.column in (1, 3, 4, 5):
+                cell.alignment = center_align
+            else:
+                cell.alignment = left_align
+
+    ws_phones.freeze_panes = "A2"
+    ws_phones.auto_filter.ref = ws_phones.dimensions
+
+    ws_hist = wb.create_sheet(title="Historia zdarzeń")
+    headers_hist = ["Data", "Model telefonu", "Nr telefonu", "Kategoria", "Opis zdarzenia / uwagi"]
+    ws_hist.append(headers_hist)
+
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT h.data, t.model, t.nr_tel, h.kategoria, h.opis
+            FROM historia h
+            LEFT JOIN telefony t ON h.telefon_id = t.id
+            ORDER BY h.id DESC
+            """
+        )
+        hist_rows = cursor.fetchall()
+
+    for row in hist_rows:
+        ws_hist.append(list(row))
+
+    # Stylowanie arkusza historii
+    for cell in ws_hist[1]:
+        cell.font = header_font
+        cell.fill = PatternFill(start_color="2F5597", end_color="2F5597", fill_type="solid")
+        cell.alignment = center_align
+
+    for row in ws_hist.iter_rows(min_row=2, max_row=ws_hist.max_row, min_col=1, max_col=len(headers_hist)):
+        for cell in row:
+            cell.border = thin_border
+            if cell.column in (1, 3, 4):
+                cell.alignment = center_align
+            else:
+                cell.alignment = left_align
+
+    ws_hist.freeze_panes = "A2"
+    ws_hist.auto_filter.ref = ws_hist.dimensions
+
+    for ws in (ws_phones, ws_hist):
+        for col in ws.columns:
+            max_len = 0
+            col_letter = get_column_letter(col[0].column)
+            for cell in col:
+                if cell.value is not None:
+                    max_len = max(max_len, len(str(cell.value)))
+                ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+
+    wb.save(file_path)
+    return len(phone_rows)
+
+def get_phones_count(show_deleted=False):
+    deleted_flag = 1 if show_deleted else 0
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM telefony WHERE czy_usuniety = ?", (deleted_flag,))
+        return cursor.fetchone()[0]
