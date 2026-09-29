@@ -55,7 +55,7 @@ class AddEventDialog(tk.Toplevel):
             messagebox.showwarning("Puste pole", "Wpisz treść zdarzenia lub uwagi.")
             return
 
-        db.add_event(self.phone_id, self.cat_combo.get(), opis)
+        db.add_history_entry(self.phone_id, self.cat_combo.get(), opis)
         self.destroy()
         if self.on_save_callback:
             self.on_save_callback()
@@ -120,7 +120,7 @@ class ExcelImportDialog(tk.Toplevel):
         form_frame = ttk.Frame(self, padding=(15, 5))
         form_frame.pack(fill=tk.BOTH, expand=True)
 
-        options = ["[Ignoruj / brak]"] + self.headers
+        options = ["[Ignoruj / brak]"] + self.header
 
         for idx, (field_key, field_label) in enumerate(self.TARGET_FIELDS):
             ttk.Label(form_frame, text=field_label).grid(row=idx, column=0, sticky=tk.W, pady=4, padx=5)
@@ -129,7 +129,7 @@ class ExcelImportDialog(tk.Toplevel):
             
             # Próba automatycznego dopasowania po nazwie
             matched = False
-            for header in self.headers:
+            for header in self.header:
                 clean_field = field_label.lower().replace("*", "").strip()
                 if header.lower() in clean_field or clean_field in header.lower():
                     combo.set(header)
@@ -153,7 +153,7 @@ class ExcelImportDialog(tk.Toplevel):
         for key, combo in self.combos.items():
             selected = combo.get()
             if selected != "[Ignoruj / brak]":
-                mapping[key] = self.headers.index(selected)
+                mapping[key] = self.header.index(selected)
 
         if "model" not in mapping or "nr_tel" not in mapping:
             messagebox.showwarning(

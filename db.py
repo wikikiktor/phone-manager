@@ -1,3 +1,4 @@
+import re
 import sqlite3
 from datetime import datetime
 
@@ -5,6 +6,20 @@ DB_NAME = "telefony.db"
 
 def get_connection():
     return sqlite3.connect(DB_NAME)
+
+def format_phone_number(val):
+    if not val:
+        return ""
+    val_str = str(val).strip()
+    digits = re.sub(r"\D", "", val_str)
+
+    if len(digits) == 9:
+        return f"{digits[:3]}-{digits[3:6]}-{digits[6:]}"
+    elif len(digits) == 11 and digits.startswith("48"):
+        d = digits[2:]
+        return f"+48 {d[:3]}-{d[3:6]}-{d[6:9]}"
+    else:
+        return val
 
 def init_db():
 
@@ -43,12 +58,12 @@ def init_db():
         """,
             (
                 "Przykładowy Model",
-                "123456789", 
-                "SIM123456", 
-                "IMEI123456789", 
-                "SERIAL123456", 
-                "Rodzaj1", 
-                "Użytkownik1", 
+                format_phone_number("123456789"),
+                "SIM123456",
+                "IMEI123456789",
+                "SERIAL123456",
+                "Rodzaj1",
+                "Użytkownik1",
                 "Odpowiedzialny1",
                 ),)
         tel_id = cursor.lastrowid
@@ -66,15 +81,22 @@ def init_db():
 
 def search_phones(query_str):
     search = f"%{query_str}%"
+    clean_digits = re.sub(r"\D", "", query_str)
+    digits_search = f"%{clean_digits}%" if clean_digits else search
+
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
             SELECT id, nr_tel, osoba_uzytkujaca, model FROM telefony
-            WHERE nr_tel LIKE ? OR osoba_uzytkujaca LIKE ? OR model LIKE ? OR imei LIKE ?
+            WHERE nr_tel LIKE ?
+            OR REPLACE(nr_tel, '-', '') LIKE ? 
+            OR osoba_uzytkujaca LIKE ? 
+            OR model LIKE ? 
+            OR imei LIKE ?
             ORDER BY id DESC
             """,
-            (search, search, search, search)
+            (search, digits_search, search, search, search)
         )
         return cursor.fetchall()
 
@@ -106,6 +128,8 @@ def get_phone_history(phone_id):
         return cursor.fetchall()
 
 def insert_phone(data):
+    formatted_nr = format_phone_number(data.get("nr_tel",""))
+
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -115,7 +139,7 @@ def insert_phone(data):
             """,
             (
                 data["model"],
-                data["nr_tel"],
+                formatted_nr,
                 data["nr_sim"],
                 data["imei"],
                 data["nr_seryjny"],
@@ -250,7 +274,7 @@ def bulk_insert_phones(phone_records):
         cursor = conn.cursor()
         for data in phone_records:
             model = (data.get("model") or "").strip()
-            nr_tel = (data.get("nr_tel") or "").strip()
+            nr_tel = format_phone_number((data.get("nr_tel") or "").strip())
 
             if not model or not nr_tel:
                 continue

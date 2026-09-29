@@ -13,6 +13,13 @@ class APP(tk.Tk):
         self.minsize(950, 600)
 
         self.selected_phone_id = None
+
+        self.sort_column = None
+        self.sort_reverse = False
+
+        self.history_sort_column = None
+        self.history_sort_reverse = False
+
         db.init_db()
         self.build_ui()
         self.load_phone_list()
@@ -42,9 +49,15 @@ class APP(tk.Tk):
 
         cols = ("nr_tel", "uzytkownik", "model")
         self.tree = ttk.Treeview(left_frame, columns=cols, show="headings", selectmode="browse")
-        self.tree.heading("nr_tel", text="Nr telefonu")
-        self.tree.heading("uzytkownik", text="Użytkownik")
-        self.tree.heading("model", text="Model")
+
+        self.col_titles = {
+            "nr_tel": "Nr telefonu",
+            "uzytkownik": "Użytkownik",
+            "model": "Model",
+        }
+        for col, title in self.col_titles.items():
+            self.tree.heading(col, text=title, command=lambda c=col: self.on_phone_column_click(c))
+
         self.tree.column("nr_tel", width=105)
         self.tree.column("uzytkownik", width=120)
         self.tree.column("model", width=120)
@@ -80,10 +93,13 @@ class APP(tk.Tk):
             if key == "rodzaj":
                 ent = ttk.Combobox(
                     details_box,
-                    values=["Służbowy", "Mieszany", "Dyżurny", "Magazyn / Rezerwa"],
+                    values=["Montage/Service"],
                 )
             else:
                 ent = ttk.Entry(details_box, width=28)
+
+                if key == "nr_tel":
+                    ent.bind("<FocusOut>", self._format_phone_entry)
             ent.grid(row=r, column=c + 1, sticky=tk.EW, padx=5, pady=3)
             self.entries[key] = ent
 
@@ -113,9 +129,15 @@ class APP(tk.Tk):
             show="headings",
             selectmode="browse",
         )
-        self.history_tree.heading("data", text="Data")
-        self.history_tree.heading("kategoria", text="Kategoria")
-        self.history_tree.heading("opis", text="Opis zdarzenia / uwagi")
+
+        self.history_col_titles = {
+            "data": "Data",
+            "kategoria": "Kategoria",
+            "opis": "Opis zdarzenia / uwagi",
+        }
+        for col, title in self.history_col_titles.items():
+            self.history_tree.heading(col, text=title, command=lambda c=col: self.on_history_column_click(c))
+        
         self.history_tree.column("data", width=120, stretch=False)
         self.history_tree.column("kategoria", width=110, stretch=False)
         self.history_tree.column("opis", width=300)
@@ -124,6 +146,58 @@ class APP(tk.Tk):
         self.history_tree.configure(yscrollcommand=h_scroll.set)
         h_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.history_tree.pack(fill=tk.BOTH, expand=True)
+
+    def on_phone_column_click(self, col):
+        if self.sort_column == col:
+            self.sort_reverse = not self.sort_reverse
+        else:
+            self.sort_column = col
+            self.sort_reverse = False
+
+        self.apply_phone_sorting()
+
+    def apply_phone_sorting(self):
+        for col, title in self.col_titles.items():
+            if col == self.sort_column:
+                arrow = "  ▼" if self.sort_reverse else "  ▲"
+                self.tree.heading(col, text=f"{title}{arrow}")
+            else:
+                self.tree.heading(col, text=title)
+
+        if not self.sort_column:
+            return
+
+        items = [(self.tree.set(k, self.sort_column), k) for k in self.tree.get_children("")]
+        items.sort(key=lambda t: t[0].lower(), reverse=self.sort_reverse)
+
+        for index, (_, k) in enumerate(items):
+            self.tree.move(k, "", index)
+
+    def on_history_column_click(self, col):
+        if self.history_sort_column == col:
+            self.history_sort_reverse = not self.history_sort_reverse
+        else:
+            self.history_sort_column = col
+            self.history_sort_reverse = False
+
+        self.apply_history_sorting()
+
+    def apply_history_sorting(self):
+        for col, title in self.history_col_titles.items():
+            if col == self.history_sort_column:
+                arrow = "  ▼" if self.history_sort_reverse else "  ▲"
+                self.history_tree.heading(col, text=f"{title}{arrow}")
+            else:
+                self.history_tree.heading(col, text=title)
+
+        if not self.history_sort_column:
+            return
+
+        items = [(self.history_tree.set(k, self.history_sort_column), k) for k in self.history_tree.get_children("")]
+        items.sort(key=lambda t: t[0].lower(), reverse=self.history_sort_reverse)
+
+        for index, (_, k) in enumerate(items):
+            self.history_tree.move(k, "", index)
 
     def load_phone_list(self):
         query = self.search_var.get().strip()
@@ -137,6 +211,9 @@ class APP(tk.Tk):
                 iid=str(row[0]),
                 values=(row[1], row[2] or "[BRAK]", row[3])
             )
+
+        if self.sort_column:
+            self.apply_phone_sorting()
 
     def refresh_selected_details(self):
         if not self.selected_phone_id:
@@ -174,7 +251,9 @@ class APP(tk.Tk):
         self.entries["model"].focus()
 
     def save_phone(self):
+        self._format_phone_entry() 
         data = {k: ent.get().strip() for k, ent in self.entries.items()}
+        
         if not data["model"] or not data["nr_tel"]:
             messagebox.showwarning("Błąd", "Model i Nr Tel są wymagane.")
             return
@@ -217,3 +296,10 @@ class APP(tk.Tk):
             return
 
         ExcelImportDialog(self, file_path, on_success_callback=self.load_phone_list)
+
+    def _format_phone_entry(self, _event=None):
+        current = self.entries["nr_tel"].get()
+        formatted = db.format_phone_number(current)
+        if current != formatted:
+            self.entries["nr_tel"].delete(0, tk.END)
+            self.entries["nr_tel"].insert(0, formatted)
