@@ -1,12 +1,27 @@
+import os
 import re
+import shutil
 import sqlite3
 from datetime import datetime
+from pathlib import Path
 
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-DB_NAME = "telefony.db"
+def get_db_path():
+    appdata = os.getenv("APPDATA")
+    if appdata:
+        app_dir = Path(appdata) / "BazaTelefonow"
+    else:
+        app_dir = Path.home() / ".baza_telefonow"
+
+    app_dir.mkdir(parents=True, exist_ok=True)
+    target_db = app_dir / "telefony.db"
+
+    return str(target_db)
+
+DB_NAME = get_db_path()
 
 def get_connection():
     return sqlite3.connect(DB_NAME)
