@@ -1,4 +1,5 @@
 import tkinter as tk
+from datetime import datetime
 from tkinter import messagebox, ttk
 
 import openpyxl
@@ -86,6 +87,8 @@ class ExcelImportDialog(tk.Toplevel):
         self.sheet = None
         self.header = []
         self.combos = {}
+        self.has_history_sheet = False
+        self.import_history_var = tk.BooleanVar(value=False)
 
         if self.load_excel_headers():
             self.build_ui()
@@ -93,7 +96,14 @@ class ExcelImportDialog(tk.Toplevel):
     def load_excel_headers(self):
         try:
             self.wb = openpyxl.load_workbook(self.file_path, data_only=True)
-            self.sheet = self.wb.active
+            if "Telefony" in self.wb.sheetnames:
+                self.sheet = self.wb["Telefony"]
+            else:
+                self.sheet = self.wb.active
+
+            self.has_history_sheet = "Historia zdarzeń" in self.wb.sheetnames
+            if self.has_history_sheet:
+                self.import_history_var.set(True)
 
             first_row = next(self.sheet.iter_rows(values_only=True), None)
             if not first_row:
@@ -143,12 +153,23 @@ class ExcelImportDialog(tk.Toplevel):
 
         form_frame.columnconfigure(1, weight=1)
 
+        if self.has_history_sheet:
+            chk_frame = ttk.Frame(self, padding=(15, 5))
+            chk_frame.pack(fill=tk.X)
+            self.chk_history = ttk.Checkbutton(
+                chk_frame,
+                text="Importuj również historię (znaleziono arkusz 'Historia zdarzeń')",
+                variable=self.import_history_var
+            )
+            self.chk_history.pack(anchor=tk.W)
+
         btn_box = ttk.Frame(self, padding=10)
         btn_box.pack(fill=tk.X)
         ttk.Button(btn_box, text="Anuluj", command=self.destroy).pack(side=tk.RIGHT, padx=5)
         ttk.Button(btn_box, text="Importuj dane", command=self.import_data).pack(side=tk.RIGHT, padx=5)
 
     def import_data(self):
+
         mapping = {}
         for key, combo in self.combos.items():
             selected = combo.get()
@@ -181,9 +202,63 @@ class ExcelImportDialog(tk.Toplevel):
             messagebox.showinfo("Brak danych", "Nie znaleziono żadnych danych do zaimportowania.", parent=self)
             return
 
-        imported_count = db.bulk_insert_phones(phone_records)
-        messagebox.showinfo("Sukces", f"Pomyślnie zaimportowano {imported_count} telefon(ów).", parent=self)
+        history_records = self._extract_history_records()
 
+        phones_cnt, hist_cnt = db.bulk_insert_phones(phone_records, history_records)
+
+        msg = f"Pomyślnie zaimportowano {phones_cnt} telefon(ów)."
+        if history_records is not None:
+            msg += f"\nZaimportowano również {hist_cnt} wpis(ów) historii."
+
+        messagebox.showinfo("Sukces", msg, parent=self)
         self.destroy()
         if self.on_success_callback:
             self.on_success_callback()
+
+    def _extract_history_records(self):
+        if not self.has_history_sheet or not self.import_history_var.get():
+            return None
+
+        ws_hist = self.wb["Historia zdarzeń"]
+        rows = list(ws_hist.iter_rows(values_only=True))
+        if len(rows) < 2:
+            return None
+
+        hist_headers = [str(col).strip().lower() if col is not None else "" for col in rows[0]]
+
+        def find_col(keywords, exclude=None):
+            for i, h in enumerate(hist_headers):
+                if exclude and any(ex in h for ex in exclude):
+                    continue
+                if any(k in h for k in keywords):
+                    return i
+            return None
+
+        idx_data = find_col(["data"])
+        # Szukamy kolumny z numerem telefonu, wykluczając kolumnę z modelem:
+        idx_nr = find_col(["nr tel", "numer tel", "nr_tel", "telefon"], exclude=["model"])
+        idx_kat = find_col(["kategoria"])
+        idx_opis = find_col(["opis", "uwagi"])
+
+        if idx_nr is None:
+            return None
+
+        history_records = []
+        for r in rows[1:]:
+            if not any(r):
+                continue
+
+            date_val = r[idx_data] if idx_data is not None and idx_data < len(r) else ""
+            if isinstance(date_val, datetime):
+                date_str = date_val.strftime("%Y-%m-%d %H:%M")
+            else:
+                date_str = str(date_val).strip() if date_val is not None else ""
+
+            history_records.append({
+                "data": date_str,
+                "nr_tel": str(r[idx_nr]) if idx_nr < len(r) and r[idx_nr] is not None else "",
+                "kategoria": str(r[idx_kat]).strip() if idx_kat is not None and idx_kat < len(r) and r[idx_kat] is not None else "Import",
+                "opis": str(r[idx_opis]).strip() if idx_opis is not None and idx_opis < len(r) and r[idx_opis] is not None else "",
+            })
+
+        return history_records

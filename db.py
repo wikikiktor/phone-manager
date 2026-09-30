@@ -308,13 +308,16 @@ def add_history_entry(phone_id, category, description):
             ),
         )
 
-def bulk_insert_phones(phone_records):
+def bulk_insert_phones(phone_records, history_records=None):
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")  # noqa: DTZ005
-    inserted_count = 0
+    inserted_phones_count = 0
+    inserted_history_count = 0
+    phone_id_map = {}
 
     with get_connection() as conn:
         cursor = conn.cursor()
+
         for data in phone_records:
             model = (data.get("model") or "").strip()
             nr_tel = format_phone_number((data.get("nr_tel") or "").strip())
@@ -339,22 +342,49 @@ def bulk_insert_phones(phone_records):
                 ),
             )
             phone_id = cursor.lastrowid
+            phone_id_map[nr_tel] = phone_id
+            inserted_phones_count += 1
 
-            cursor.execute(
-                """
-                INSERT INTO historia (telefon_id, data, kategoria, opis)
-                VALUES (?, ?, ?, ?)
-                """,
-                (
-                    phone_id,
-                    now_str,
-                    "Dodanie do bazy",
-                    "Zarejestrowano urządzenie w systemie.",
-                ),
-            )
-            inserted_count += 1
+            if not history_records:
+                cursor.execute(
+                    """
+                    INSERT INTO historia (telefon_id, data, kategoria, opis)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        phone_id,
+                        now_str,
+                        "Dodanie do bazy",
+                        "Zarejestrowano urządzenie w systemie.",
+                    ),
+                )
+        if history_records:
+            for h in history_records:
+                h_nr = format_phone_number(h.get("nr_tel", ""))
+                phone_id = phone_id_map.get(h_nr)
 
-    return inserted_count
+                if not phone_id and h_nr:
+                    cursor.execute("SELECT id FROM telefony WHERE nr_tel = ? LIMIT 1", (h_nr,))
+                    row = cursor.fetchone()
+                    if row:
+                        phone_id = row[0]
+
+                if phone_id:
+                    cursor.execute(
+                        """
+                        INSERT INTO historia (telefon_id, data, kategoria, opis)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (
+                            phone_id,
+                            h.get("data") or now_str,
+                            h.get("kategoria") or "Import",
+                            h.get("opis") or "",
+                        ),
+                    )
+                    inserted_history_count += 1
+
+    return inserted_phones_count, inserted_history_count
 
 def export_to_excel(file_path, phone_ids=None):
     wb = openpyxl.Workbook()
