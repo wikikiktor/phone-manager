@@ -3,29 +3,10 @@ from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
 
 import db
-from dialogs import AddEventDialog, ExcelImportDialog
+from dialogs import AddEventDialog, ExcelImportDialog, AddNoteDialog
 
 
 class APP(tk.Tk):
-    def __init__(self):
-        super().__init__()
-        self.title("Baza Telefonów")
-        self.geometry("1100x680")
-        self.minsize(950, 600)
-
-        self.selected_phone_id = None
-        self.show_deleted_var = tk.BooleanVar(value=False)
-
-        self.sort_column = None
-        self.sort_reverse = False
-
-        self.history_sort_column = None
-        self.history_sort_reverse = False
-
-        db.init_db()
-        self.build_ui()
-        self.load_phone_list()
-
     def build_ui(self):
         # Górny pasek: wyszukiwarka + przycisk nowego telefonu
         top_bar = ttk.Frame(self, padding=10)
@@ -44,12 +25,9 @@ class APP(tk.Tk):
             command=self.on_toggle_trash_view,
         )
         self.chk_trash.pack(side=tk.LEFT, padx=10)
-        
 
         ttk.Button(top_bar, text="+ Nowy telefon", command=self.prepare_new_phone).pack(side=tk.RIGHT, padx=5)
-
         ttk.Button(top_bar, text="Eksportuj do Excela", command=self.export_to_excel).pack(side=tk.RIGHT, padx=5)
-
         ttk.Button(top_bar, text="Importuj z Excela", command=self.open_excel_import).pack(side=tk.RIGHT, padx=5)
 
         # Główny podział
@@ -145,13 +123,20 @@ class APP(tk.Tk):
         history_box = ttk.LabelFrame(right_frame, text="Dziennik zdarzeń i uwagi", padding=10)
         history_box.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        h_top = ttk.Frame(history_box)
-        h_top.pack(fill=tk.X, pady=(0, 5))
-        ttk.Button(h_top, text="+ Dodaj wpis / uwagę", command=self.open_add_event_popup).pack(side=tk.RIGHT)
+        self.h_top = ttk.Frame(history_box)
+        self.h_top.pack(fill=tk.X, pady=(0, 5))
 
+        # Przyciski akcji historii
+        self.btn_add_event = ttk.Button(self.h_top, text="+ Dodaj wpis", command=self.open_add_event_popup)
+        self.btn_add_event.pack(side=tk.RIGHT)
+
+        # Przycisk uwagi: początkowo ukryty, pojawi się obok po kliknięciu wpisu
+        self.btn_add_note = ttk.Button(self.h_top, text="+ Dodaj / edytuj uwagę", command=self.open_add_note_popup)
+
+        # Tabela historii: 'uwagi' po prawej stronie od 'opis'
         self.history_tree = ttk.Treeview(
             history_box,
-            columns=("data", "kategoria", "opis"),
+            columns=("data", "kategoria", "opis", "uwagi"),
             show="headings",
             selectmode="browse",
         )
@@ -159,19 +144,54 @@ class APP(tk.Tk):
         self.history_col_titles = {
             "data": "Data",
             "kategoria": "Kategoria",
-            "opis": "Opis zdarzenia / uwagi",
+            "opis": "Opis zdarzenia",
+            "uwagi": "Uwagi",
         }
         for col, title in self.history_col_titles.items():
             self.history_tree.heading(col, text=title, command=lambda c=col: self.on_history_column_click(c))
         
         self.history_tree.column("data", width=120, stretch=False)
         self.history_tree.column("kategoria", width=110, stretch=False)
-        self.history_tree.column("opis", width=300)
+        self.history_tree.column("opis", width=250)
+        self.history_tree.column("uwagi", width=220)
+
+        # Zdarzenie kliknięcia wiersza w historii
+        self.history_tree.bind("<<TreeviewSelect>>", self.on_history_select)
 
         h_scroll = ttk.Scrollbar(history_box, orient=tk.VERTICAL, command=self.history_tree.yview)
         self.history_tree.configure(yscrollcommand=h_scroll.set)
         h_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.history_tree.pack(fill=tk.BOTH, expand=True)
+
+    def on_history_select(self, _event=None):
+        selected = self.history_tree.selection()
+        if selected:
+            self.btn_add_note.pack(side=tk.RIGHT, padx=(0, 6))
+        else:
+            self.btn_add_note.pack_forget()
+
+    def open_add_note_popup(self):
+        selected = self.history_tree.selection()
+        if not selected:
+            messagebox.showwarning("Wybierz wpis", "Wybierz wpis z historii, aby dodać lub edytować uwagę.")
+            return
+
+        history_id = int(selected[0])
+        current_values = self.history_tree.item(history_id, "values")
+        current_note = current_values[3] if len(current_values) > 3 else ""
+
+        AddNoteDialog(
+            parent=self,
+            history_id=history_id,
+            current_note=current_note,
+            on_save_callback=lambda: self._after_note_saved(history_id)
+        )
+
+    def _after_note_saved(self, history_id):
+        self.refresh_selected_details()
+        if self.history_tree.exists(str(history_id)):
+            self.history_tree.selection_set(str(history_id))
+            self.btn_add_note.pack(side=tk.RIGHT, padx=(0, 6))
 
     def on_phone_column_click(self, col):
         if self.sort_column == col:
@@ -241,7 +261,6 @@ class APP(tk.Tk):
 
         total = db.get_phones_count(show_deleted=is_trash)
 
-        shown_phones = len(rows)
         prefix = "W koszu:" if is_trash else "Łącznie aktywnych:"
         if query:
             self.lbl_count.config(text=f"{prefix} znaleziono {len(rows)} z {total}")
@@ -268,8 +287,15 @@ class APP(tk.Tk):
 
         history_rows = db.get_phone_history(self.selected_phone_id)
         self.history_tree.delete(*self.history_tree.get_children())
-        for history_row in history_rows:
-            self.history_tree.insert("", tk.END, values=history_row)
+        self.btn_add_note.pack_forget()
+
+        for h_id, h_data, h_kat, h_opis, h_uwagi in history_rows:
+            self.history_tree.insert(
+                "",
+                tk.END,
+                iid=str(h_id),
+                values=(h_data, h_kat, h_opis, h_uwagi)
+            )
 
     def on_phone_select(self, _event):
         selected = self.tree.selection()
@@ -284,6 +310,7 @@ class APP(tk.Tk):
         for entry in self.entries.values():
             entry.delete(0, tk.END)
         self.history_tree.delete(*self.history_tree.get_children())
+        self.btn_add_note.pack_forget()
         self.entries["model"].focus()
 
     def save_phone(self):

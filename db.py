@@ -9,6 +9,7 @@ import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+
 def get_db_path():
     appdata = os.getenv("APPDATA")
     if appdata:
@@ -66,11 +67,17 @@ def init_db():
             data TEXT NOT NULL,
             kategoria TEXT NOT NULL,
             opis TEXT,
+            uwagi TEXT DEFAULT '',
             FOREIGN KEY (telefon_id) REFERENCES telefony (id)
         )''')
 
     try:
         cursor.execute("ALTER TABLE telefony ADD COLUMN czy_usuniety INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE historia ADD COLUMN uwagi TEXT DEFAULT ''")
     except sqlite3.OperationalError:
         pass
 
@@ -146,7 +153,7 @@ def get_phone_history(phone_id):
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT data, kategoria, opis
+            SELECT data, kategoria, opis, COALESCE(uwagi, '')
             FROM historia
             WHERE telefon_id = ?
             ORDER BY id DESC
@@ -154,6 +161,14 @@ def get_phone_history(phone_id):
             (phone_id,),
         )
         return cursor.fetchall()
+
+def update_history_note(history_id, note):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE historia SET uwagi = ? WHERE id = ?",
+            (note, history_id),
+        )
 
 def insert_phone(data):
     formatted_nr = format_phone_number(data.get("nr_tel",""))
@@ -179,14 +194,15 @@ def insert_phone(data):
         phone_id = cursor.lastrowid
         cursor.execute(
             """
-            INSERT INTO historia (telefon_id, data, kategoria, opis)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO historia (telefon_id, data, kategoria, opis, uwagi)
+            VALUES (?, ?, ?, ?, ?)
             """,
             (
                 phone_id,
                 datetime.now().strftime("%Y-%m-%d %H:%M"),  # noqa: DTZ005
                 "Dodanie do bazy",
                 "Zarejestrowano urządzenie w systemie.",
+                "",
             ),
         )
         return phone_id
@@ -263,10 +279,10 @@ def update_phone(phone_id, data):
 
                     cursor.execute(
                         """
-                        INSERT INTO historia (telefon_id, data, kategoria, opis)
-                        VALUES (?, ?, ?, ?)
+                        INSERT INTO historia (telefon_id, data, kategoria, opis, uwagi)
+                        VALUES (?, ?, ?, ?, ?)
                         """,
-                        (phone_id, now_str, kategoria, opis),
+                        (phone_id, now_str, kategoria, opis, ""),
                     )
 
 def soft_delete_phone(phone_id):
@@ -276,10 +292,10 @@ def soft_delete_phone(phone_id):
         cursor.execute("UPDATE telefony SET czy_usuniety = 1 WHERE id = ?", (phone_id,))
         cursor.execute(
             """
-            INSERT INTO historia (telefon_id, data, kategoria, opis)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO historia (telefon_id, data, kategoria, opis, uwagi)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (phone_id, now_str, "Kosz / Usunięcie", "Telefon przeniesiono do kosza (usunięto z aktywnej listy)."),
+            (phone_id, now_str, "Kosz / Usunięcie", "Telefon przeniesiono do kosza (usunięto z aktywnej listy).", ""),
         )
 
 def restore_phone(phone_id):
@@ -289,10 +305,10 @@ def restore_phone(phone_id):
             cursor.execute("UPDATE telefony SET czy_usuniety = 0 WHERE id = ?", (phone_id,))
             cursor.execute(
                 """
-                INSERT INTO historia (telefon_id, data, kategoria, opis)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO historia (telefon_id, data, kategoria, opis, uwagi)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (phone_id, now_str, "Przywrócenie", "Przywrócono urządzenie z kosza do aktywnych."),
+                (phone_id, now_str, "Przywrócenie", "Przywrócono urządzenie z kosza do aktywnych.", ""),
             )
 
 def hard_delete_phone(phone_id):
@@ -307,19 +323,20 @@ def hard_delete_phone(phone_id):
             (phone_id,)
         )
 
-def add_history_entry(phone_id, category, description):
+def add_history_entry(phone_id, category, description, note=""):
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO historia (telefon_id, data, kategoria, opis)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO historia (telefon_id, data, kategoria, opis, uwagi)
+            VALUES (?, ?, ?, ?, ?)
             """,
             (
                 phone_id,
                 datetime.now().strftime("%Y-%m-%d %H:%M"),  # noqa: DTZ005
                 category,
                 description,
+                note,
             ),
         )
 
@@ -363,14 +380,15 @@ def bulk_insert_phones(phone_records, history_records=None):
             if not history_records:
                 cursor.execute(
                     """
-                    INSERT INTO historia (telefon_id, data, kategoria, opis)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO historia (telefon_id, data, kategoria, opis, uwagi)
+                    VALUES (?, ?, ?, ?, ?)
                     """,
                     (
                         phone_id,
                         now_str,
                         "Dodanie do bazy",
                         "Zarejestrowano urządzenie w systemie.",
+                        "",
                     ),
                 )
         if history_records:
@@ -387,14 +405,15 @@ def bulk_insert_phones(phone_records, history_records=None):
                 if phone_id:
                     cursor.execute(
                         """
-                        INSERT INTO historia (telefon_id, data, kategoria, opis)
-                        VALUES (?, ?, ?, ?)
+                        INSERT INTO historia (telefon_id, data, kategoria, opis, uwagi)
+                        VALUES (?, ?, ?, ?, ?)
                         """,
                         (
                             phone_id,
                             h.get("data") or now_str,
                             h.get("kategoria") or "Import",
                             h.get("opis") or "",
+                            h.get("uwagi") or "",
                         ),
                     )
                     inserted_history_count += 1
@@ -479,7 +498,7 @@ def export_to_excel(file_path, phone_ids=None):
             placeholders = ",".join("?" for _ in phone_ids)
             cursor.execute(
                 f"""
-                SELECT h.data, t.model, t.nr_tel, h.kategoria, h.opis
+                SELECT h.data, t.model, t.nr_tel, h.kategoria, h.opis, COALESCE(h.uwagi, '')
                 FROM historia h
                 LEFT JOIN telefony t ON h.telefon_id = t.id
                 WHERE h.telefon_id IN ({placeholders})
@@ -490,7 +509,7 @@ def export_to_excel(file_path, phone_ids=None):
         else:
             cursor.execute(
                 """
-                SELECT h.data, t.model, t.nr_tel, h.kategoria, h.opis
+                SELECT h.data, t.model, t.nr_tel, h.kategoria, h.opis, COALESCE(h.uwagi, '')
                 FROM historia h
                 LEFT JOIN telefony t ON h.telefon_id = t.id
                 ORDER BY h.id DESC

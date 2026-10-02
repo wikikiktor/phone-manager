@@ -36,10 +36,10 @@ class AddEventDialog(tk.Toplevel):
             ],
             state="readonly",
         )
-        self.cat_combo.set("Notatka / Uwaga")
+        self.cat_combo.set("Notatka")
         self.cat_combo.pack(fill=tk.X, padx=15)
 
-        ttk.Label(self, text="Opis zdarzenia / uwagi:").pack(anchor=tk.W, padx=15, pady=(10, 2))
+        ttk.Label(self, text="Opis zdarzenia:").pack(anchor=tk.W, padx=15, pady=(10, 2))
         
         self.txt = tk.Text(self, height=5, wrap=tk.WORD)
         self.txt.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
@@ -57,6 +57,36 @@ class AddEventDialog(tk.Toplevel):
             return
 
         db.add_history_entry(self.phone_id, self.cat_combo.get(), opis)
+        self.destroy()
+        if self.on_save_callback:
+            self.on_save_callback()
+
+class AddNoteDialog(tk.Toplevel):
+    def __init__(self, parent, history_id, current_note, on_save_callback):
+        super().__init__(parent)
+        self.history_id = history_id
+        self.on_save_callback = on_save_callback
+
+        self.title("Dodaj / Edytuj notatkę")
+        self.geometry("400x250")
+        self.transient(parent)
+        self.grab_set()
+
+        ttk.Label(self, text="Uwaga do zdarzenia:").pack(anchor=tk.W, padx=15, pady=(15, 2))
+        self.note_text = tk.Text(self, height=5, wrap=tk.WORD)
+        self.note_text.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
+        if current_note:
+            self.note_text.insert("1.0", current_note)
+        self.note_text.focus()
+
+        btn_box = ttk.Frame(self)
+        btn_box.pack(fill=tk.X, padx=15, pady=10)
+        ttk.Button(btn_box, text="Anuluj", command=self.destroy).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_box, text="Zapisz uwagę", command=self.save_note).pack(side=tk.RIGHT)
+
+    def save_note(self):
+        note = self.note_text.get("1.0", tk.END).strip()
+        db.update_history_note(self.history_id, note)
         self.destroy()
         if self.on_save_callback:
             self.on_save_callback()
@@ -238,7 +268,9 @@ class ExcelImportDialog(tk.Toplevel):
         # Szukamy kolumny z numerem telefonu, wykluczając kolumnę z modelem:
         idx_nr = find_col(["nr tel", "numer tel", "nr_tel", "telefon"], exclude=["model"])
         idx_kat = find_col(["kategoria"])
-        idx_opis = find_col(["opis", "uwagi"])
+        idx_opis = find_col(["opis zdarzenia", "opis"])
+        idx_uwagi = find_col(["uwagi", "uwaga"])
+
 
         if idx_nr is None:
             return None
@@ -259,6 +291,7 @@ class ExcelImportDialog(tk.Toplevel):
                 "nr_tel": str(r[idx_nr]) if idx_nr < len(r) and r[idx_nr] is not None else "",
                 "kategoria": str(r[idx_kat]).strip() if idx_kat is not None and idx_kat < len(r) and r[idx_kat] is not None else "Import",
                 "opis": str(r[idx_opis]).strip() if idx_opis is not None and idx_opis < len(r) and r[idx_opis] is not None else "",
+                "uwagi": str(r[idx_uwagi]).strip() if idx_uwagi is not None and idx_uwagi < len(r) and r[idx_uwagi] is not None else "",
             })
 
         return history_records
