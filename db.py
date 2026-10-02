@@ -153,7 +153,7 @@ def get_phone_history(phone_id):
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT data, kategoria, opis, COALESCE(uwagi, '')
+            SELECT id, data, kategoria, opis, COALESCE(uwagi, '')
             FROM historia
             WHERE telefon_id = ?
             ORDER BY id DESC

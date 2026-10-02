@@ -7,6 +7,25 @@ from dialogs import AddEventDialog, ExcelImportDialog, AddNoteDialog
 
 
 class APP(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Baza Telefonów")
+        self.geometry("1100x680")
+        self.minsize(950, 600)
+
+        self.selected_phone_id = None
+        self.show_deleted_var = tk.BooleanVar(value=False)
+
+        self.sort_column = None
+        self.sort_reverse = False
+
+        self.history_sort_column = None
+        self.history_sort_reverse = False
+
+        db.init_db()
+        self.build_ui()
+        self.load_phone_list()
+        
     def build_ui(self):
         # Górny pasek: wyszukiwarka + przycisk nowego telefonu
         top_bar = ttk.Frame(self, padding=10)
@@ -177,7 +196,7 @@ class APP(tk.Tk):
             return
 
         history_id = int(selected[0])
-        current_values = self.history_tree.item(history_id, "values")
+        current_values = self.history_tree.item(selected[0], "values")
         current_note = current_values[3] if len(current_values) > 3 else ""
 
         AddNoteDialog(

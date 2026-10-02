@@ -7,6 +7,7 @@ __pycache__/
 *.so
 
 telefony.db
+.idea/
 
 # Distribution / packaging
 .Python
