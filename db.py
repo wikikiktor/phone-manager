@@ -71,8 +71,31 @@ def init_db():
             FOREIGN KEY (telefon_id) REFERENCES telefony (id)
         )''')
 
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS pracodawca (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nazwa_firmy TEXT,
+            adres TEXT,
+            nip TEXT
+        )''')
+
     try:
         cursor.execute("ALTER TABLE telefony ADD COLUMN czy_usuniety INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE telefony ADD COLUMN czy_protokol INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE telefony ADD COLUMN wyposazenie TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE telefony ADD COLUMN stan_baterii TEXT DEFAULT 'Brak informacji'")
     except sqlite3.OperationalError:
         pass
 
@@ -140,7 +163,8 @@ def get_phone_by_id(phone_id):
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna
+            SELECT model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna, 
+            COALESCE(czy_protokol, 0), COALESCE(wyposazenie, ''), COALESCE(stan_baterii, 'Brak informacji')
             FROM telefony
             WHERE id = ?
             """,
@@ -177,8 +201,8 @@ def insert_phone(data):
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO telefony (model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO telefony (model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna, czy_protokol, wyposazenie, stan_baterii)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 data["model"],
@@ -189,6 +213,9 @@ def insert_phone(data):
                 data["rodzaj"],
                 data["osoba_uzytkujaca"],
                 data["osoba_odpowiedzialna"],
+                data.get("czy_protokol", 0),
+                data.get("wyposazenie", ""),
+                data.get("stan_baterii", "Brak informacji"),
             ),
         )
         phone_id = cursor.lastrowid
@@ -218,7 +245,10 @@ def update_phone(phone_id, data):
         "nr_seryjny": "Nr seryjny",
         "rodzaj": "Rodzaj",
         "osoba_uzytkujaca": "Osoba użytkująca",
-        "osoba_odpowiedzialna": "Osoba odpowiedzialna"
+        "osoba_odpowiedzialna": "Osoba odpowiedzialna",
+        "czy_protokol": "Protokół zdawczo-odbiorczy",
+        "wyposazenie": "Wyposażenie dodatkowe",
+        "stan_baterii": "Stan baterii",
     }
 
     category_map = {
@@ -226,6 +256,9 @@ def update_phone(phone_id, data):
         "osoba_odpowiedzialna": "Zmiana odpowiedzialnego",
         "nr_sim": "Wymiana karty SIM",
         "rodzaj": "Zmiana statusu/rodzaju",
+        "czy_protokol": "Zmiana statusu protokołu",
+        "wyposazenie": "Zmiana wyposażenia",
+        "stan_baterii": "Zmiana stanu baterii",
     }
 
     with get_connection() as conn:
@@ -233,7 +266,7 @@ def update_phone(phone_id, data):
 
         cursor.execute(
             """
-            Select model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna
+            Select model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna, czy_protokol, wyposazenie, stan_baterii
             FROM telefony
             WHERE id = ?
             """,
@@ -244,7 +277,8 @@ def update_phone(phone_id, data):
         cursor.execute(
             """
             UPDATE telefony
-            SET model = ?, nr_tel = ?, nr_sim = ?, imei = ?, nr_seryjny = ?, rodzaj = ?, osoba_uzytkujaca = ?, osoba_odpowiedzialna = ?
+            SET model = ?, nr_tel = ?, nr_sim = ?, imei = ?, nr_seryjny = ?, rodzaj = ?, osoba_uzytkujaca = ?, osoba_odpowiedzialna = ?,
+                czy_protokol = ?, wyposazenie = ?, stan_baterii = ?
             WHERE id = ?
             """,
             (
@@ -256,6 +290,9 @@ def update_phone(phone_id, data):
                 data["rodzaj"],
                 data["osoba_uzytkujaca"],
                 data["osoba_odpowiedzialna"],
+                data.get("czy_protokol", 0),
+                data.get("wyposazenie", ""),
+                data.get("stan_baterii", "Brak informacji"),
                 phone_id,
             ),
         )
@@ -263,13 +300,20 @@ def update_phone(phone_id, data):
         if old_row:
             keys = [
                 "model", "nr_tel", "nr_sim", "imei",
-                "nr_seryjny", "rodzaj", "osoba_uzytkujaca", "osoba_odpowiedzialna"
+                "nr_seryjny", "rodzaj", "osoba_uzytkujaca", "osoba_odpowiedzialna", "czy_protokol", "wyposazenie", "stan_baterii"
             ]
-            now_str = datetime.now().strftime("%Y-%m-%d %H:%M")  # noqa: DTZ005
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M")  
             
             for i, key in enumerate(keys):
-                old_val = (old_row[i] or "").strip()
-                new_val = (data[key] or "").strip()
+                old_raw = old_row[i]
+                new_raw = data.get(key, "")
+
+                if key == "czy_protokol":
+                    old_val = "Tak" if old_raw else "Nie"
+                    new_val = "Tak" if new_raw else "Nie"
+                else:
+                    old_val = str(old_raw if old_raw is not None else "").strip()
+                    new_val = str(new_raw if new_raw is not None else "").strip()
                 
                 if old_val != new_val:
                     old = old_val if old_val else "[puste]"
@@ -357,10 +401,20 @@ def bulk_insert_phones(phone_records, history_records=None):
             if not model or not nr_tel:
                 continue
 
+            raw_prot = data.get("czy_protokol", 0)
+            if isinstance(raw_prot, str):
+                czy_prot = 1 if raw_prot.strip().lower() in ("tak", "1", "true", "t", "x") else 0
+            else:
+                czy_prot = 1 if raw_prot else 0
+
+            wyposazenie = (data.get("wyposazenie") or "").strip()
+
+            stan_baterii = (data.get("stan_baterii") or "Brak informacji").strip()
+
             cursor.execute(
                 """
-                INSERT INTO telefony (model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO telefony (model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna, czy_protokol, wyposazenie, stan_baterii)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     model,
@@ -371,6 +425,9 @@ def bulk_insert_phones(phone_records, history_records=None):
                     (data.get("rodzaj") or "").strip(),
                     (data.get("osoba_uzytkujaca") or "").strip(),
                     (data.get("osoba_odpowiedzialna") or "").strip(),
+                    czy_prot,
+                    wyposazenie,
+                    stan_baterii,
                 ),
             )
             phone_id = cursor.lastrowid
@@ -439,7 +496,8 @@ def export_to_excel(file_path, phone_ids=None):
 
     headers_phones = [
         "ID", "Model telefonu", "Numer telefonu", "Numer SIM",
-        "IMEI", "Numer seryjny", "Rodzaj", "Osoba użytkująca", "Osoba odpowiedzialna"
+        "IMEI", "Numer seryjny", "Rodzaj", "Osoba użytkująca", "Osoba odpowiedzialna",
+        "Protokół zdawczo-odbiorczy", "Wyposażenie dodatkowe", "Stan baterii"
     ]
     ws_phones.append(headers_phones)
 
@@ -452,7 +510,8 @@ def export_to_excel(file_path, phone_ids=None):
             placeholders = ",".join("?" for _ in phone_ids)
             cursor.execute(
                 f"""
-                SELECT id, model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna
+                SELECT id, model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna, 
+                COALESCE(czy_protokol, 0), COALESCE(wyposazenie, ''), COALESCE(stan_baterii, 'Brak informacji')
                 FROM telefony
                 WHERE id IN ({placeholders})
                 ORDER BY id ASC
@@ -462,16 +521,19 @@ def export_to_excel(file_path, phone_ids=None):
         else:
             cursor.execute(
                 """
-                SELECT id, model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna
+                SELECT id, model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna, COALESCE(czy_protokol, 0), COALESCE(wyposazenie, ''), COALESCE(stan_baterii, 'Brak informacji')
                 FROM telefony
                 ORDER BY id ASC
                 """
             )
         phone_rows = cursor.fetchall()
-    for row in phone_rows:
-        ws_phones.append(list(row))
 
-    for col_idx, cell in enumerate(ws_phones[1], start=1):
+    for row in phone_rows:
+        row_list = list(row)
+        row_list[9] = "Tak" if row_list[9] else "Nie"
+        ws_phones.append(row_list)
+
+    for cell in ws_phones[1]:
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = center_align
@@ -480,7 +542,7 @@ def export_to_excel(file_path, phone_ids=None):
         for cell in row:
             cell.border = thin_border
             # ID, nr_tel, SIM, IMEI wyśrodkowane, reszta do lewej
-            if cell.column in (1, 3, 4, 5):
+            if cell.column in (1, 3, 4, 5, 10):
                 cell.alignment = center_align
             else:
                 cell.alignment = left_align
@@ -489,7 +551,7 @@ def export_to_excel(file_path, phone_ids=None):
     ws_phones.auto_filter.ref = ws_phones.dimensions
 
     ws_hist = wb.create_sheet(title="Historia zdarzeń")
-    headers_hist = ["Data", "Model telefonu", "Nr telefonu", "Kategoria", "Opis zdarzenia / uwagi"]
+    headers_hist = ["Data", "Model telefonu", "Nr telefonu", "Kategoria", "Opis zdarzenia", "Uwagi"]
     ws_hist.append(headers_hist)
 
     with get_connection() as conn:
@@ -555,3 +617,25 @@ def get_phones_count(show_deleted=False):
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM telefony WHERE czy_usuniety = ?", (deleted_flag,))
         return cursor.fetchone()[0]
+
+def get_employer():
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT nazwa_firmy, adres, nip FROM pracodawca ORDER BY id DESC LIMIT 1")                
+        return cursor.fetchone()
+
+def save_employer(nazwa_firmy, adres, nip):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM pracodawca ORDER BY id DESC LIMIT 1")
+        row = cursor.fetchone()
+        if row:
+            cursor.execute(
+                "UPDATE pracodawca SET nazwa_firmy = ?, adres = ?, nip = ? WHERE id = ?",
+                (nazwa_firmy, adres, nip, row[0])
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO pracodawca (nazwa_firmy, adres, nip) VALUES (?, ?, ?)",
+                (nazwa_firmy, adres, nip)
+            )

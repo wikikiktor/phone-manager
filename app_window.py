@@ -3,7 +3,7 @@ from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
 
 import db
-from dialogs import AddEventDialog, ExcelImportDialog, AddNoteDialog
+from dialogs import AddEventDialog, AddNoteDialog, EmployerDialog, ExcelImportDialog
 
 
 class APP(tk.Tk):
@@ -21,6 +21,12 @@ class APP(tk.Tk):
 
         self.history_sort_column = None
         self.history_sort_reverse = False
+
+        self.var_protocol = tk.BooleanVar(value=False)
+        self.wyposazenie_options = ["Ładowarka", "Etui", "Kabel USB", "Szkło ochronne"]
+        self.wyposazenie_vars = {
+            opt: tk.BooleanVar(value=False) for opt in self.wyposazenie_options
+        }
 
         db.init_db()
         self.build_ui()
@@ -48,6 +54,7 @@ class APP(tk.Tk):
         ttk.Button(top_bar, text="+ Nowy telefon", command=self.prepare_new_phone).pack(side=tk.RIGHT, padx=5)
         ttk.Button(top_bar, text="Eksportuj do Excela", command=self.export_to_excel).pack(side=tk.RIGHT, padx=5)
         ttk.Button(top_bar, text="Importuj z Excela", command=self.open_excel_import).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(top_bar, text="Dane pracodawcy", command=self.open_employer_dialog).pack(side=tk.LEFT, padx=5)
 
         # Główny podział
         main_paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
@@ -105,6 +112,7 @@ class APP(tk.Tk):
             ("Rodzaj użytkowania:", "rodzaj", 2, 2),
             ("Osoba użytkująca:", "osoba_uzytkujaca", 3, 0),
             ("Osoba odpowiedzialna:", "osoba_odpowiedzialna", 3, 2),
+            ("Stan baterii:", "stan_baterii", 4, 0),
         ]
 
         for label_text, key, r, c in fields:
@@ -114,9 +122,15 @@ class APP(tk.Tk):
                     details_box,
                     values=["Montage/Service"],
                 )
+            elif key == "stan_baterii":
+                ent = ttk.Combobox(
+                    details_box,
+                    values=["Dobry", "Zadowalający", "Słaby","Brak informacji"],
+                    width=26
+                )
+                ent.set("Brak informacji")
             else:
                 ent = ttk.Entry(details_box, width=28)
-
                 if key == "nr_tel":
                     ent.bind("<FocusOut>", self._format_phone_entry)
             ent.grid(row=r, column=c + 1, sticky=tk.EW, padx=5, pady=3)
@@ -125,8 +139,28 @@ class APP(tk.Tk):
         details_box.columnconfigure(1, weight=1)
         details_box.columnconfigure(3, weight=1)
 
+        ttk.Label(details_box, text="Wysłany protokół:").grid(row=5, column=0, sticky=tk.W, padx=5, pady=3)
+        self.chk_protocol = ttk.Checkbutton(
+            details_box, 
+            variable=self.var_protocol
+        )
+        self.chk_protocol.grid(row=5, column=1, sticky=tk.W, padx=5, pady=3)
+
+        ttk.Label(details_box, text="Wyposażenie:").grid(row=4, column=2, rowspan=2, sticky=tk.NW, padx=5, pady=3)
+        equip_frame = ttk.Frame(details_box)
+        equip_frame.grid(row=4, column=3, rowspan=2, sticky=tk.W, padx=5, pady=3)
+
+        for idx, item in enumerate(self.wyposazenie_options):
+            r = idx // 2
+            c = idx % 2
+            ttk.Checkbutton(
+                equip_frame,
+                text=item,
+                variable=self.wyposazenie_vars[item]
+            ).grid(row=r, column=c, sticky=tk.W, padx=(0, 10), pady=2)
+
         btn_bar = ttk.Frame(details_box)
-        btn_bar.grid(row=4, column=0, columnspan=4, pady=10, sticky=tk.E)
+        btn_bar.grid(row=6, column=0, columnspan=4, pady=10, sticky=tk.E)
 
         self.btn_delete = ttk.Button(btn_bar, text="Przenieś do kosza", command=self.soft_delete_phone)
         self.btn_delete.pack(side=tk.LEFT, padx=5)
@@ -304,6 +338,15 @@ class APP(tk.Tk):
                 if row[i]:
                     self.entries[key].insert(0, row[i])
 
+            self.var_protocol.set(bool(row[8]))
+
+            raw_equip = row[9] or ""
+            current_equip = [x.strip() for x in raw_equip.split(",") if x.strip()]
+            for item, var in self.wyposazenie_vars.items():
+                var.set(item in current_equip)  
+
+            self.entries["stan_baterii"].set(row[10] if row[10] else "Brak informacji")
+
         history_rows = db.get_phone_history(self.selected_phone_id)
         self.history_tree.delete(*self.history_tree.get_children())
         self.btn_add_note.pack_forget()
@@ -326,8 +369,16 @@ class APP(tk.Tk):
     def prepare_new_phone(self):
         self.selected_phone_id = None
         self.tree.selection_remove(*self.tree.selection())
-        for entry in self.entries.values():
-            entry.delete(0, tk.END)
+        for key, entry in self.entries.values():
+            if key == "stan_baterii":
+                entry.set("Brak informacji")
+            else:
+                entry.delete(0, tk.END)
+
+        self.var_protocol.set(False)
+        for var in self.wyposazenie_vars.values():
+            var.set(False)
+
         self.history_tree.delete(*self.history_tree.get_children())
         self.btn_add_note.pack_forget()
         self.entries["model"].focus()
@@ -335,6 +386,10 @@ class APP(tk.Tk):
     def save_phone(self):
         self._format_phone_entry() 
         data = {k: ent.get().strip() for k, ent in self.entries.items()}
+
+        data["czy_protokol"] = 1 if self.var_protocol.get() else 0
+        selected_equip = [item for item, var in self.wyposazenie_vars.items() if var.get()]
+        data["wyposazenie"] = ", ".join(selected_equip)
 
         if not data["model"] or not data["nr_tel"]:
             messagebox.showwarning("Błąd", "Model i Nr Tel są wymagane.")
@@ -466,3 +521,6 @@ class APP(tk.Tk):
             self.btn_save.pack(side=tk.LEFT, padx=5)
         
         self.load_phone_list()
+
+    def open_employer_dialog(self):
+        EmployerDialog(self)

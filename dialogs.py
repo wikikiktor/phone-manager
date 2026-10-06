@@ -101,6 +101,9 @@ class ExcelImportDialog(tk.Toplevel):
         ("rodzaj", "Rodzaj"),
         ("osoba_uzytkujaca", "Osoba użytkująca"),
         ("osoba_odpowiedzialna", "Osoba odpowiedzialna"),
+        ("czy_protokol", "Protokół zdawczo-odbiorczy"),
+        ("wyposazenie", "Wyposażenie dodatkowe"),
+        ("stan_baterii", "Stan baterii"),
     ]
 
     def __init__(self, parent, file_path, on_success_callback):
@@ -295,3 +298,59 @@ class ExcelImportDialog(tk.Toplevel):
             })
 
         return history_records
+
+class EmployerDialog(tk.Toplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+
+        self.title("Dane pracodawcy")
+        self.geometry("400x300")
+        self.transient(parent)
+        self.grab_set()
+
+        self.build_ui()
+        self.load_data()
+
+    def build_ui(self):
+        frame = ttk.Frame(self, padding=15)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(frame, text="Nazwa firmy:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        self.ent_nazwa = ttk.Entry(frame, width=32)
+        self.ent_nazwa.grid(row=0, column=1, sticky=tk.EW, pady=5, padx=5)
+
+        ttk.Label(frame, text="Adres:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        self.ent_adres = ttk.Entry(frame, width=32)
+        self.ent_adres.grid(row=1, column=1, sticky=tk.EW, pady=5, padx=5)
+
+        ttk.Label(frame, text="NIP:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        self.ent_nip = ttk.Entry(frame, width=32)
+        self.ent_nip.grid(row=2, column=1, sticky=tk.EW, pady=5, padx=5)
+
+        frame.columnconfigure(1, weight=1)
+
+        btn_box = ttk.Frame(frame)
+        btn_box.grid(row=3, column=0, columnspan=2, pady=(15, 0), sticky=tk.E)
+
+        ttk.Button(btn_box, text="Anuluj", command=self.destroy).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_box, text="Zapisz", command=self.save_data).pack(side=tk.RIGHT, padx=5)
+
+    def load_data(self):
+        data = db.get_employer()
+        if data:
+            nazwa, adres, nip = data
+            if nazwa:
+                self.ent_nazwa.insert(0, nazwa)
+            if adres:
+                self.ent_adres.insert(0, adres)
+            if nip:
+                self.ent_nip.insert(0, nip)
+
+    def save_data(self):
+        nazwa = self.ent_nazwa.get().strip()
+        adres = self.ent_adres.get().strip()
+        nip = self.ent_nip.get().strip()
+
+        db.save_employer(nazwa, adres, nip)
+        messagebox.showinfo("Zapisano", "Dane pracodawcy zostały zapisane.", parent=self)
+        self.destroy()
