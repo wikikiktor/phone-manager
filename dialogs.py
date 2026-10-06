@@ -8,6 +8,13 @@ import db
 import protocol_generator
 
 
+def center_dialog(window, width, height, parent):
+    window.update_idletasks()
+    x = parent.winfo_rootx() + (parent.winfo_width() // 2) - (width // 2)
+    y = parent.winfo_rooty() + (parent.winfo_height() // 2) - (height // 2)
+    window.geometry(f"{width}x{height}+{max(0, x)}+{max(0, y)}")
+
+
 class AddEventDialog(tk.Toplevel):
     def __init__(self, parent, phone_id, on_save_callback):
         super().__init__(parent)
@@ -15,17 +22,20 @@ class AddEventDialog(tk.Toplevel):
         self.on_save_callback = on_save_callback
 
         self.title("Dodaj zdarzenie / uwagę")
-        self.geometry("450x300")
         self.transient(parent)
         self.grab_set()
 
         self.build_ui()
+        center_dialog(self, 460, 320, parent)
 
     def build_ui(self):
-        ttk.Label(self, text="Kategoria:").pack(anchor=tk.W, padx=15, pady=(15, 2))
-        
+        container = ttk.Frame(self, padding=16)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(container, text="Kategoria zdarzenia:", font=("Segoe UI", 9, "bold")).pack(anchor=tk.W, pady=(0, 4))
+
         self.cat_combo = ttk.Combobox(
-            self,
+            container,
             values=[
                 "Notatka / Uwaga",
                 "Zmiana użytkownika",
@@ -37,24 +47,24 @@ class AddEventDialog(tk.Toplevel):
             ],
             state="readonly",
         )
-        self.cat_combo.set("Notatka")
-        self.cat_combo.pack(fill=tk.X, padx=15)
+        self.cat_combo.set("Notatka / Uwaga")
+        self.cat_combo.pack(fill=tk.X, pady=(0, 10))
 
-        ttk.Label(self, text="Opis zdarzenia:").pack(anchor=tk.W, padx=15, pady=(10, 2))
-        
-        self.txt = tk.Text(self, height=5, wrap=tk.WORD)
-        self.txt.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
+        ttk.Label(container, text="Opis zdarzenia / notatki:", font=("Segoe UI", 9, "bold")).pack(anchor=tk.W, pady=(0, 4))
+
+        self.txt = tk.Text(container, height=6, wrap=tk.WORD, font=("Segoe UI", 9), relief="solid", borderwidth=1)
+        self.txt.pack(fill=tk.BOTH, expand=True, pady=(0, 12))
         self.txt.focus()
 
-        ttk.Button(self, text="Zapisz wpis", command=self.save_event).pack(
-            pady=10, padx=15, anchor=tk.E
-        )
+        btn_box = ttk.Frame(container)
+        btn_box.pack(fill=tk.X)
+        ttk.Button(btn_box, text="Anuluj", style="Secondary.TButton", command=self.destroy).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_box, text="💾 Zapisz wpis", style="Primary.TButton", command=self.save_event).pack(side=tk.RIGHT, padx=4)
 
     def save_event(self):
         opis = self.txt.get("1.0", tk.END).strip()
-
         if not opis:
-            messagebox.showwarning("Puste pole", "Wpisz treść zdarzenia lub uwagi.")
+            messagebox.showwarning("Puste pole", "Wpisz treść zdarzenia lub uwagi.", parent=self)
             return
 
         db.add_history_entry(self.phone_id, self.cat_combo.get(), opis)
@@ -62,28 +72,36 @@ class AddEventDialog(tk.Toplevel):
         if self.on_save_callback:
             self.on_save_callback()
 
+
 class AddNoteDialog(tk.Toplevel):
     def __init__(self, parent, history_id, current_note, on_save_callback):
         super().__init__(parent)
         self.history_id = history_id
         self.on_save_callback = on_save_callback
 
-        self.title("Dodaj / Edytuj notatkę")
-        self.geometry("400x250")
+        self.title("Edycja uwagi do zdarzenia")
         self.transient(parent)
         self.grab_set()
 
-        ttk.Label(self, text="Uwaga do zdarzenia:").pack(anchor=tk.W, padx=15, pady=(15, 2))
-        self.note_text = tk.Text(self, height=5, wrap=tk.WORD)
-        self.note_text.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
+        self.build_ui(current_note)
+        center_dialog(self, 440, 260, parent)
+
+    def build_ui(self, current_note):
+        container = ttk.Frame(self, padding=16)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(container, text="Treść uwagi do zdarzenia:", font=("Segoe UI", 9, "bold")).pack(anchor=tk.W, pady=(0, 6))
+
+        self.note_text = tk.Text(container, height=5, wrap=tk.WORD, font=("Segoe UI", 9), relief="solid", borderwidth=1)
+        self.note_text.pack(fill=tk.BOTH, expand=True, pady=(0, 12))
         if current_note:
             self.note_text.insert("1.0", current_note)
         self.note_text.focus()
 
-        btn_box = ttk.Frame(self)
-        btn_box.pack(fill=tk.X, padx=15, pady=10)
-        ttk.Button(btn_box, text="Anuluj", command=self.destroy).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(btn_box, text="Zapisz uwagę", command=self.save_note).pack(side=tk.RIGHT)
+        btn_box = ttk.Frame(container)
+        btn_box.pack(fill=tk.X)
+        ttk.Button(btn_box, text="Anuluj", style="Secondary.TButton", command=self.destroy).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_box, text="💾 Zapisz uwagę", style="Primary.TButton", command=self.save_note).pack(side=tk.RIGHT, padx=4)
 
     def save_note(self):
         note = self.note_text.get("1.0", tk.END).strip()
@@ -92,8 +110,9 @@ class AddNoteDialog(tk.Toplevel):
         if self.on_save_callback:
             self.on_save_callback()
 
+
 class ExcelImportDialog(tk.Toplevel):
-    TARGET_FIELDS = [  # noqa: RUF012
+    TARGET_FIELDS = [
         ("model", "Model telefonu *"),
         ("nr_tel", "Numer telefonu *"),
         ("nr_sim", "Numer SIM"),
@@ -113,7 +132,6 @@ class ExcelImportDialog(tk.Toplevel):
         self.on_success_callback = on_success_callback
 
         self.title("Import danych z Excela")
-        self.geometry("600x400")
         self.transient(parent)
         self.grab_set()
 
@@ -126,6 +144,7 @@ class ExcelImportDialog(tk.Toplevel):
 
         if self.load_excel_headers():
             self.build_ui()
+            center_dialog(self, 620, 480, parent)
 
     def load_excel_headers(self):
         try:
@@ -146,32 +165,32 @@ class ExcelImportDialog(tk.Toplevel):
                 return False
 
             self.header = [str(val).strip() if val is not None else f"Kolumna {idx+1}" for idx, val in enumerate(first_row)]
-            
             return True
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             messagebox.showerror("Błąd", f"Nie można wczytać pliku Excel: {e}")
             self.destroy()
             return False
 
     def build_ui(self):
-        ttk.Label(
-            self,
-            text="Przypisz kolumny z arkusza Excel do odpowiednich pól.\nPola oznaczone gwiazdką (*) są wymagane.",
-            padding=10,
-            justify=tk.LEFT
-        ).pack(anchor=tk.W)
+        container = ttk.Frame(self, padding=16)
+        container.pack(fill=tk.BOTH, expand=True)
 
-        form_frame = ttk.Frame(self, padding=(15, 5))
+        ttk.Label(
+            container,
+            text="Przypisz kolumny z arkusza Excel do odpowiednich pól w bazie.\nPola oznaczone gwiazdką (*) są wymagane.",
+            font=("Segoe UI", 9, "bold"),
+            justify=tk.LEFT,
+        ).pack(anchor=tk.W, pady=(0, 10))
+
+        form_frame = ttk.Frame(container)
         form_frame.pack(fill=tk.BOTH, expand=True)
 
         options = ["[Ignoruj / brak]"] + self.header
 
         for idx, (field_key, field_label) in enumerate(self.TARGET_FIELDS):
-            ttk.Label(form_frame, text=field_label).grid(row=idx, column=0, sticky=tk.W, pady=4, padx=5)
-            
-            combo = ttk.Combobox(form_frame, values=options, state="readonly", width=28)
-            
-            # Próba automatycznego dopasowania po nazwie
+            ttk.Label(form_frame, text=field_label).grid(row=idx, column=0, sticky=tk.W, pady=3, padx=4)
+
+            combo = ttk.Combobox(form_frame, values=options, state="readonly", width=30)
             matched = False
             for header in self.header:
                 clean_field = field_label.lower().replace("*", "").strip()
@@ -182,28 +201,26 @@ class ExcelImportDialog(tk.Toplevel):
             if not matched:
                 combo.set("[Ignoruj / brak]")
 
-            combo.grid(row=idx, column=1, sticky=tk.EW, pady=4, padx=5)
+            combo.grid(row=idx, column=1, sticky=tk.EW, pady=3, padx=4)
             self.combos[field_key] = combo
 
         form_frame.columnconfigure(1, weight=1)
 
         if self.has_history_sheet:
-            chk_frame = ttk.Frame(self, padding=(15, 5))
+            chk_frame = ttk.Frame(container, padding=(0, 8))
             chk_frame.pack(fill=tk.X)
-            self.chk_history = ttk.Checkbutton(
+            ttk.Checkbutton(
                 chk_frame,
-                text="Importuj również historię (znaleziono arkusz 'Historia zdarzeń')",
-                variable=self.import_history_var
-            )
-            self.chk_history.pack(anchor=tk.W)
+                text="Importuj również historię zdarzeń (znaleziono arkusz 'Historia zdarzeń')",
+                variable=self.import_history_var,
+            ).pack(anchor=tk.W)
 
-        btn_box = ttk.Frame(self, padding=10)
-        btn_box.pack(fill=tk.X)
-        ttk.Button(btn_box, text="Anuluj", command=self.destroy).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(btn_box, text="Importuj dane", command=self.import_data).pack(side=tk.RIGHT, padx=5)
+        btn_box = ttk.Frame(container)
+        btn_box.pack(fill=tk.X, pady=(10, 0))
+        ttk.Button(btn_box, text="Anuluj", style="Secondary.TButton", command=self.destroy).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_box, text="📥 Importuj dane", style="Primary.TButton", command=self.import_data).pack(side=tk.RIGHT, padx=4)
 
     def import_data(self):
-
         mapping = {}
         for key, combo in self.combos.items():
             selected = combo.get()
@@ -214,7 +231,7 @@ class ExcelImportDialog(tk.Toplevel):
             messagebox.showwarning(
                 "Brakujące mapowanie",
                 "Wymagane jest przypisanie kolumn: 'Model telefonu' oraz 'Numer telefonu'.",
-                parent=self
+                parent=self,
             )
             return
 
@@ -225,7 +242,6 @@ class ExcelImportDialog(tk.Toplevel):
         for row in data_rows:
             if not any(row):
                 continue
-
             record = {}
             for field_key, col_idx in mapping.items():
                 val = row[col_idx] if col_idx < len(row) else ""
@@ -237,7 +253,6 @@ class ExcelImportDialog(tk.Toplevel):
             return
 
         history_records = self._extract_history_records()
-
         phones_cnt, hist_cnt = db.bulk_insert_phones(phone_records, history_records)
 
         msg = f"Pomyślnie zaimportowano {phones_cnt} telefon(ów)."
@@ -269,12 +284,10 @@ class ExcelImportDialog(tk.Toplevel):
             return None
 
         idx_data = find_col(["data"])
-        # Szukamy kolumny z numerem telefonu, wykluczając kolumnę z modelem:
         idx_nr = find_col(["nr tel", "numer tel", "nr_tel", "telefon"], exclude=["model"])
         idx_kat = find_col(["kategoria"])
         idx_opis = find_col(["opis zdarzenia", "opis"])
         idx_uwagi = find_col(["uwagi", "uwaga"])
-
 
         if idx_nr is None:
             return None
@@ -300,41 +313,41 @@ class ExcelImportDialog(tk.Toplevel):
 
         return history_records
 
+
 class EmployerDialog(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
-
-        self.title("Dane pracodawcy")
-        self.geometry("400x300")
+        self.title("Dane pracodawcy / firmy")
         self.transient(parent)
         self.grab_set()
 
         self.build_ui()
         self.load_data()
+        center_dialog(self, 440, 250, parent)
 
     def build_ui(self):
-        frame = ttk.Frame(self, padding=15)
+        frame = ttk.Frame(self, padding=16)
         frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(frame, text="Nazwa firmy:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        ttk.Label(frame, text="Nazwa firmy:").grid(row=0, column=0, sticky=tk.W, pady=6)
         self.ent_nazwa = ttk.Entry(frame, width=32)
-        self.ent_nazwa.grid(row=0, column=1, sticky=tk.EW, pady=5, padx=5)
+        self.ent_nazwa.grid(row=0, column=1, sticky=tk.EW, pady=6, padx=(6, 0))
 
-        ttk.Label(frame, text="Adres:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        ttk.Label(frame, text="Adres firmy:").grid(row=1, column=0, sticky=tk.W, pady=6)
         self.ent_adres = ttk.Entry(frame, width=32)
-        self.ent_adres.grid(row=1, column=1, sticky=tk.EW, pady=5, padx=5)
+        self.ent_adres.grid(row=1, column=1, sticky=tk.EW, pady=6, padx=(6, 0))
 
-        ttk.Label(frame, text="NIP:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        ttk.Label(frame, text="NIP:").grid(row=2, column=0, sticky=tk.W, pady=6)
         self.ent_nip = ttk.Entry(frame, width=32)
-        self.ent_nip.grid(row=2, column=1, sticky=tk.EW, pady=5, padx=5)
+        self.ent_nip.grid(row=2, column=1, sticky=tk.EW, pady=6, padx=(6, 0))
 
         frame.columnconfigure(1, weight=1)
 
         btn_box = ttk.Frame(frame)
-        btn_box.grid(row=3, column=0, columnspan=2, pady=(15, 0), sticky=tk.E)
+        btn_box.grid(row=3, column=0, columnspan=2, pady=(16, 0), sticky=tk.E)
 
-        ttk.Button(btn_box, text="Anuluj", command=self.destroy).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(btn_box, text="Zapisz", command=self.save_data).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_box, text="Anuluj", style="Secondary.TButton", command=self.destroy).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_box, text="💾 Zapisz dane", style="Primary.TButton", command=self.save_data).pack(side=tk.RIGHT, padx=4)
 
     def load_data(self):
         data = db.get_employer()
@@ -353,24 +366,25 @@ class EmployerDialog(tk.Toplevel):
         nip = self.ent_nip.get().strip()
 
         db.save_employer(nazwa, adres, nip)
-        messagebox.showinfo("Zapisano", "Dane pracodawcy zostały zapisane.", parent=self)
+        messagebox.showinfo("Zapisano", "Dane pracodawcy zostały pomyślnie zaktualizowane.", parent=self)
         self.destroy()
+
 
 class ProtocolDialog(tk.Toplevel):
     def __init__(self, parent, initial_phone_id=None):
         super().__init__(parent)
         self.initial_phone_id = initial_phone_id
 
-        self.title("Generuj protokół telefonu")
-        self.geometry("520x330")
+        self.title("Generowanie protokołu telefonu")
         self.transient(parent)
         self.grab_set()
 
         self.phone_map = {}
         self.build_ui()
+        center_dialog(self, 540, 360, parent)
 
     def build_ui(self):
-        container = ttk.Frame(self, padding=15)
+        container = ttk.Frame(self, padding=16)
         container.pack(fill=tk.BOTH, expand=True)
 
         ttk.Label(container, text="Typ protokołu:").grid(row=0, column=0, sticky=tk.W, pady=6)
@@ -381,7 +395,7 @@ class ProtocolDialog(tk.Toplevel):
             width=36,
         )
         self.type_combo.set("Protokół przekazania")
-        self.type_combo.grid(row=0, column=1, sticky=tk.EW, pady=6, padx=5)
+        self.type_combo.grid(row=0, column=1, sticky=tk.EW, pady=6, padx=(6, 0))
 
         ttk.Label(container, text="Wybierz telefon:").grid(row=1, column=0, sticky=tk.W, pady=6)
 
@@ -408,29 +422,31 @@ class ProtocolDialog(tk.Toplevel):
         elif phone_labels:
             self.phone_combo.set(phone_labels[0])
 
-        self.phone_combo.grid(row=1, column=1, sticky=tk.EW, pady=6, padx=5)
+        self.phone_combo.grid(row=1, column=1, sticky=tk.EW, pady=6, padx=(6, 0))
         self.phone_combo.bind("<<ComboboxSelected>>", self.update_preview)
 
-        self.preview_box = ttk.LabelFrame(container, text="Dane wybranego telefonu", padding=8)
-        self.preview_box.grid(row=2, column=0, columnspan=2, sticky=tk.EW, pady=10)
+        self.preview_box = ttk.LabelFrame(container, text=" Podgląd danych wybranego telefonu ", style="Card.TLabelframe", padding=10)
+        self.preview_box.grid(row=2, column=0, columnspan=2, sticky=tk.EW, pady=12)
 
-        self.lbl_user = ttk.Label(self.preview_box, text="Użytkownik: -")
-        self.lbl_user.pack(anchor=tk.W)
-        self.lbl_model = ttk.Label(self.preview_box, text="Model: - | IMEI: -")
-        self.lbl_model.pack(anchor=tk.W)
-        self.lbl_equip = ttk.Label(self.preview_box, text="Wyposażenie: -")
-        self.lbl_equip.pack(anchor=tk.W)
-        self.lbl_battery = ttk.Label(self.preview_box, text="Stan baterii: -")
-        self.lbl_battery.pack(anchor=tk.W)
+        self.lbl_user = ttk.Label(self.preview_box, text="Użytkownik: -", style="Card.TLabel")
+        self.lbl_user.pack(anchor=tk.W, pady=1)
+        self.lbl_model = ttk.Label(self.preview_box, text="Model: - | IMEI: -", style="Card.TLabel")
+        self.lbl_model.pack(anchor=tk.W, pady=1)
+        self.lbl_equip = ttk.Label(self.preview_box, text="Wyposażenie: -", style="Card.TLabel")
+        self.lbl_equip.pack(anchor=tk.W, pady=1)
+        self.lbl_battery = ttk.Label(self.preview_box, text="Stan baterii: -", style="Card.TLabel")
+        self.lbl_battery.pack(anchor=tk.W, pady=1)
 
         self.update_preview()
 
-        btn_bar = ttk.Frame(container)
-        btn_bar.grid(row=3, column=0, columnspan=2, pady=(15, 0), sticky=tk.E)
+        container.columnconfigure(1, weight=1)
 
-        ttk.Button(btn_bar, text="Anuluj", command=self.destroy).pack(side=tk.RIGHT, padx=4)
-        ttk.Button(btn_bar, text="Eksportuj do PDF", command=lambda: self.export_protocol("pdf")).pack(side=tk.RIGHT, padx=4)
-        ttk.Button(btn_bar, text="Eksportuj do DOCX", command=lambda: self.export_protocol("docx")).pack(side=tk.RIGHT, padx=4)
+        btn_bar = ttk.Frame(container)
+        btn_bar.grid(row=3, column=0, columnspan=2, pady=(10, 0), sticky=tk.E)
+
+        ttk.Button(btn_bar, text="Anuluj", style="Secondary.TButton", command=self.destroy).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_bar, text="📄 Pobierz PDF", style="Primary.TButton", command=lambda: self.export_protocol("pdf")).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_bar, text="📝 Pobierz DOCX", style="Secondary.TButton", command=lambda: self.export_protocol("docx")).pack(side=tk.RIGHT, padx=4)
 
     def get_selected_phone_id(self):
         label = self.phone_combo.get()
