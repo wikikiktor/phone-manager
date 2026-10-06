@@ -1,10 +1,11 @@
 import tkinter as tk
 from datetime import datetime
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 import openpyxl
 
 import db
+import protocol_generator
 
 
 class AddEventDialog(tk.Toplevel):
@@ -354,3 +355,144 @@ class EmployerDialog(tk.Toplevel):
         db.save_employer(nazwa, adres, nip)
         messagebox.showinfo("Zapisano", "Dane pracodawcy zostały zapisane.", parent=self)
         self.destroy()
+
+class ProtocolDialog(tk.Toplevel):
+    def __init__(self, parent, initial_phone_id=None):
+        super().__init__(parent)
+        self.initial_phone_id = initial_phone_id
+
+        self.title("Generuj protokół telefonu")
+        self.geometry("520x330")
+        self.transient(parent)
+        self.grab_set()
+
+        self.phone_map = {}
+        self.build_ui()
+
+    def build_ui(self):
+        container = ttk.Frame(self, padding=15)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(container, text="Typ protokołu:").grid(row=0, column=0, sticky=tk.W, pady=6)
+        self.type_combo = ttk.Combobox(
+            container,
+            values=["Protokół przekazania", "Protokół zwrotu"],
+            state="readonly",
+            width=36,
+        )
+        self.type_combo.set("Protokół przekazania")
+        self.type_combo.grid(row=0, column=1, sticky=tk.EW, pady=6, padx=5)
+
+        ttk.Label(container, text="Wybierz telefon:").grid(row=1, column=0, sticky=tk.W, pady=6)
+
+        phones = db.search_phones("", show_deleted=False)
+        phone_labels = []
+        selected_label = ""
+
+        for row in phones:
+            p_id, p_nr, p_user, p_model = row
+            label = f"{p_nr} | {p_user or '[Brak użytkownika]'}"
+            self.phone_map[label] = p_id
+            phone_labels.append(label)
+            if self.initial_phone_id and p_id == self.initial_phone_id:
+                selected_label = label
+
+        self.phone_combo = ttk.Combobox(
+            container,
+            values=phone_labels,
+            state="readonly",
+            width=36,
+        )
+        if selected_label:
+            self.phone_combo.set(selected_label)
+        elif phone_labels:
+            self.phone_combo.set(phone_labels[0])
+
+        self.phone_combo.grid(row=1, column=1, sticky=tk.EW, pady=6, padx=5)
+        self.phone_combo.bind("<<ComboboxSelected>>", self.update_preview)
+
+        self.preview_box = ttk.LabelFrame(container, text="Dane wybranego telefonu", padding=8)
+        self.preview_box.grid(row=2, column=0, columnspan=2, sticky=tk.EW, pady=10)
+
+        self.lbl_user = ttk.Label(self.preview_box, text="Użytkownik: -")
+        self.lbl_user.pack(anchor=tk.W)
+        self.lbl_model = ttk.Label(self.preview_box, text="Model: - | IMEI: -")
+        self.lbl_model.pack(anchor=tk.W)
+        self.lbl_equip = ttk.Label(self.preview_box, text="Wyposażenie: -")
+        self.lbl_equip.pack(anchor=tk.W)
+        self.lbl_battery = ttk.Label(self.preview_box, text="Stan baterii: -")
+        self.lbl_battery.pack(anchor=tk.W)
+
+        self.update_preview()
+
+        btn_bar = ttk.Frame(container)
+        btn_bar.grid(row=3, column=0, columnspan=2, pady=(15, 0), sticky=tk.E)
+
+        ttk.Button(btn_bar, text="Anuluj", command=self.destroy).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_bar, text="Eksportuj do PDF", command=lambda: self.export_protocol("pdf")).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_bar, text="Eksportuj do DOCX", command=lambda: self.export_protocol("docx")).pack(side=tk.RIGHT, padx=4)
+
+    def get_selected_phone_id(self):
+        label = self.phone_combo.get()
+        return self.phone_map.get(label)
+
+    def update_preview(self, _event=None):
+        phone_id = self.get_selected_phone_id()
+        if not phone_id:
+            return
+        p_row = db.get_phone_by_id(phone_id)
+        if p_row:
+            self.lbl_user.config(text=f"Użytkownik: {p_row[6] or '[BRAK]'}")
+            self.lbl_model.config(text=f"Model: {p_row[0]} | IMEI: {p_row[3] or '[BRAK]'}")
+            self.lbl_equip.config(text=f"Wyposażenie: {p_row[9] or 'Brak'}")
+            self.lbl_battery.config(text=f"Stan baterii: {p_row[10] or 'Brak informacji'}")
+
+    def export_protocol(self, ext):
+        phone_id = self.get_selected_phone_id()
+        if not phone_id:
+            messagebox.showwarning("Brak telefonu", "Wybierz telefon z listy.", parent=self)
+            return
+
+        phone_row = db.get_phone_by_id(phone_id)
+        employer_row = db.get_employer()
+
+        is_przekazanie = "przekazania" in self.type_combo.get().lower()
+        prot_type = "przekazanie" if is_przekazanie else "zwrot"
+        prefix = "Protokol_przekazania" if is_przekazanie else "Protokol_zwrotu"
+
+        clean_model = "".join(c for c in (phone_row[0] or "") if c.isalnum() or c in ("-", "_")).strip()
+        date_str = datetime.now().strftime("%Y%m%d")
+        default_name = f"{prefix}_{clean_model}_{date_str}.{ext}"
+
+        file_types = [("Dokument Word (*.docx)", "*.docx")] if ext == "docx" else [("Dokument PDF (*.pdf)", "*.pdf")]
+
+        file_path = filedialog.asksaveasfilename(
+            parent=self,
+            title=f"Zapisz protokół ({ext.upper()})",
+            defaultextension=f".{ext}",
+            initialfile=default_name,
+            filetypes=file_types,
+        )
+        if not file_path:
+            return
+
+        try:
+            if ext == "docx":
+                protocol_generator.generate_docx(file_path, phone_row, employer_row, prot_type)
+            else:
+                protocol_generator.generate_pdf(file_path, phone_row, employer_row, prot_type)
+
+            messagebox.showinfo(
+                "Sukces",
+                f"Protokół został pomyślnie wygenerowany i zapisany:\n{file_path}",
+                parent=self,
+            )
+            self.destroy()
+        except PermissionError:
+            messagebox.showerror(
+                "Błąd zapisu",
+                "Plik jest otwarty w innym programie (np. Word / Adobe Reader). Zamknij go i spróbuj ponownie.",
+                parent=self,
+            )
+        except Exception as e:
+            messagebox.showerror("Błąd", f"Wystąpił błąd podczas generowania protokołu:\n{e}", parent=self)

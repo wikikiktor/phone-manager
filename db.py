@@ -639,3 +639,15 @@ def save_employer(nazwa_firmy, adres, nip):
                 "INSERT INTO pracodawca (nazwa_firmy, adres, nip) VALUES (?, ?, ?)",
                 (nazwa_firmy, adres, nip)
             )
+
+def backup_database(dest_path):
+    with get_connection() as src_conn:
+        with sqlite3.connect(dest_path) as dst_conn:
+            src_conn.backup(dst_conn)
+
+def restore_database(backup_path):
+    with sqlite3.connect(backup_path) as src_conn:
+        with get_connection() as dst_conn:
+            src_conn.backup(dst_conn)
+
+    init_db()

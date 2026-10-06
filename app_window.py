@@ -1,9 +1,16 @@
+import sqlite3
 import tkinter as tk
 from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
 
 import db
-from dialogs import AddEventDialog, AddNoteDialog, EmployerDialog, ExcelImportDialog
+from dialogs import (
+    AddEventDialog,
+    AddNoteDialog,
+    EmployerDialog,
+    ExcelImportDialog,
+    ProtocolDialog,
+)
 
 
 class APP(tk.Tk):
@@ -54,7 +61,10 @@ class APP(tk.Tk):
         ttk.Button(top_bar, text="+ Nowy telefon", command=self.prepare_new_phone).pack(side=tk.RIGHT, padx=5)
         ttk.Button(top_bar, text="Eksportuj do Excela", command=self.export_to_excel).pack(side=tk.RIGHT, padx=5)
         ttk.Button(top_bar, text="Importuj z Excela", command=self.open_excel_import).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(top_bar, text="Stwórz protokół", command=self.open_protocol_dialog).pack(side=tk.RIGHT, padx=5)
         ttk.Button(top_bar, text="Dane pracodawcy", command=self.open_employer_dialog).pack(side=tk.LEFT, padx=5)
+        ttk.Button(top_bar, text="Utwórz kopie", command=self.create_db_backup).pack(side=tk.LEFT, padx=5)
+        ttk.Button(top_bar, text="Przywróć kopie", command=self.restore_db_backup).pack(side=tk.LEFT, padx=5)
 
         # Główny podział
         main_paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
@@ -369,9 +379,11 @@ class APP(tk.Tk):
     def prepare_new_phone(self):
         self.selected_phone_id = None
         self.tree.selection_remove(*self.tree.selection())
-        for key, entry in self.entries.values():
+        for key, entry in self.entries.items():  
             if key == "stan_baterii":
                 entry.set("Brak informacji")
+            elif key == "rodzaj":
+                entry.set("")
             else:
                 entry.delete(0, tk.END)
 
@@ -524,3 +536,80 @@ class APP(tk.Tk):
 
     def open_employer_dialog(self):
         EmployerDialog(self)
+
+    def open_protocol_dialog(self):
+        ProtocolDialog(self, initial_phone_id=self.selected_phone_id)
+
+    def create_db_backup(self):
+        default_filename = f"backup_telefony_{datetime.now().strftime('%Y%m%d_%H%M')}.db"
+
+        file_path = filedialog.asksaveasfilename(
+            parent=self,
+            title="Wybierz miejsce zapisu kopii zapasowej",
+            defaultextension=".db",
+            initialfile=default_filename,
+            filetypes=[("Baza danych SQLite (*.db)", "*.db"), ("Wszystkie pliki", "*.*")],
+        )
+        if not file_path:
+            return
+
+        try:
+            db.backup_database(file_path)
+            messagebox.showinfo(
+                "Kopia zapasowa",
+                f"Kopia zapasowa bazy danych została pomyślnie utworzona:\n{file_path}",
+                parent=self,
+            )
+        except PermissionError:
+            messagebox.showerror(
+                "Błąd zapisu",
+                "Brak uprawnień do zapisu we wskazanym folderze lub plik jest zablokowany.",
+                parent=self,
+            )
+        except Exception as e:
+            messagebox.showerror(
+                "Błąd",
+                f"Nie udało się utworzyć kopii zapasowej:\n{e}",
+                parent=self,
+            )
+
+    def restore_db_backup(self):
+        msg = (
+            "UWAGA: Ta operacja ZASTĄPI wszystkie obecne dane w programie danymi z wybranego pliku kopii!\n\n"
+            "Czy na pewno chcesz kontynuować i wybrać plik kopii zapasowej?"
+        )
+        if not messagebox.askyesno("Ostrzeżenie", msg, icon=messagebox.WARNING, parent=self):
+            return
+
+        file_path = filedialog.askopenfilename(
+            parent=self,
+            title="Wybierz plik kopii zapasowej bazy danych",
+            filetypes=[("Baza danych SQLite (*.db)", "*.db"), ("Wszystkie pliki", "*.*")],
+        )
+        if not file_path:
+            return
+
+        try:
+            db.restore_database(file_path)
+            
+            # Reset formularza i ponowne załadowanie danych z nowej bazy
+            self.prepare_new_phone()
+            self.load_phone_list()
+
+            messagebox.showinfo(
+                "Sukces",
+                "Kopia zapasowa została pomyślnie wgrana do bazy danych aplikacji!\nLista urządzeń została zaktualizowana.",
+                parent=self,
+            )
+        except sqlite3.DatabaseError:
+            messagebox.showerror(
+                "Błąd pliku",
+                "Wybrany plik jest uszkodzony lub nie jest poprawną bazą danych SQLite.",
+                parent=self,
+            )
+        except Exception as e:
+            messagebox.showerror(
+                "Błąd",
+                f"Wystąpił nieoczekiwany błąd podczas przywracania bazy:\n{e}",
+                parent=self,
+            )
