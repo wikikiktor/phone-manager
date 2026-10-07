@@ -55,7 +55,7 @@ W dolnej prawej części okna znajduje się dedykowana historia dla wybranego ur
 * **Notatki/uwagi:** Zaznacz wybrany wpis w historii i kliknij **`✏️ Edytuj uwagę`** (lub kliknij dwukrotnie dany wiersz), aby dopisać dodatkowe adnotacje (np. numer zgłoszenia serwisowego, koszt naprawy).
 
 ### 2.4. Wyszukiwarka i sortowanie
-* **Wyszukiwarka w czasie rzeczywistym:** Wpisz szukaną frazę w pole u góry. Program filtruje urządzenia po numerze telefonu (również wpisanym ciągiem bez spacji i myślników), modelu, nazwisku użytkownika lub numerze IMEI.
+* **Wyszukiwarka w czasie rzeczywistym:** Wpisz szukaną frazę w pole u góry. Program filtruje urządzenia po numerze telefonu (również wpisanym ciągiem bez spacji i myślników), modelu, nazwisku użytkownika, numerze IMEI, a także **numerze SIM oraz numerze seryjnym**.
 * **Przycisk `✕`:** Błyskawicznie czyści pole wyszukiwania.
 * **Sortowanie:** Kliknij nagłówek kolumny na liście telefonów (*Nr telefonu*, *Użytkownik*, *Model*) lub w tabeli historii, aby posortować rekordy rosnąco lub malejąco (strzałki `▲` / `▼`).
 
@@ -65,29 +65,34 @@ W dolnej prawej części okna znajduje się dedykowana historia dla wybranego ur
 * **Przywracanie urządzenia:** W widoku kosza wybierz telefon i kliknij **`↩️ Przywróć telefon`**.
 * **Trwałe skasowanie z bazy:** W widoku kosza dostępny jest przycisk **`❌ Usuń trwale z bazy`** – bezpowrotnie usuwa urządzenie i całą jego historię z bazy danych.
 
-### 2.6. Dane firmy do protokołów
+### 2.6. Oznaczanie telefonu jako uszkodzony (Flaga ostrzegawcza)
+* W przypadku awarii lub uszkodzenia sprzętu, wybierz telefon z listy i kliknij pomarańczowy przycisk **`⚠️ Oznacz telefon`**.
+* Urządzenie zostanie wyraźnie podświetlone na **czerwono** na głównej liście (oraz otrzyma stosowny znacznik w bazie), co pozwala na błyskawiczną identyfikację sprzętu wymagającego naprawy.
+* Po naprawie telefonu lub rozwiązaniu problemu wystarczy kliknąć przycisk **`✅ Odznacz telefon`**, aby przywrócić urządzeniu standardowy, bezpieczny status.
+
+### 2.7. Dane firmy do protokołów
 Przed wydrukiem dokumentów ustaw dane pracodawcy:
 1. Rozwiń menu **`⚙️ Opcje bazy ▾`** i kliknij **`🏢 Dane firmy / pracodawcy`**.
 2. Wpisz nazwę firmy, adres oraz NIP.
 3. Kliknij **`💾 Zapisz dane`**. Informacje zostaną zapamiętane i będą automatycznie wstawiane do nagłówków wszystkich protokołów.
 
-### 2.7. Generowanie gotowych protokołów (PDF i Word DOCX)
+### 2.8. Generowanie gotowych protokołów (PDF i Word DOCX)
 1. Kliknij **`📋 Protokół`** na górnym pasku (jeśli wcześniej zaznaczono telefon na liście, zostanie wybrany automatycznie).
 2. Wybierz typ: **Protokół przekazania** lub **Protokół zwrotu**.
 3. Sprawdź podgląd danych (dane pracownika, numer IMEI, zaznaczone akcesoria, stan baterii).
 4. Kliknij:
-   * **`📄 Pobierz PDF`** – generuje gotowy do wydruku, estetyczny dokument A4 w formacie PDF.
+   * **`📄 Pobierz PDF`** – generuje gotowy do wydruku, estetyczny dokument A4 w formacie PDF (obsługuje pełne polskie znaki).
    * **`📝 Pobierz DOCX`** – generuje edytowalny dokument w formacie programu Microsoft Word.
 5. Wybierz folder zapisu na dysku.
 
-### 2.8. Import i Eksport arkuszy Excel (.xlsx)
+### 2.9. Import i Eksport arkuszy Excel (.xlsx)
 * **Eksport do Excela:** Kliknij **`📊 Eksport Excel`**. Program utworzy plik `.xlsx` zawierający dwa arkusze:
   * *Telefony* – kompletna, estetycznie ostylowana tabela aktualnie widocznych urządzeń z autofiltrem i zamrożonym nagłówkiem.
   * *Historia zdarzeń* – powiązany dziennik operacji i uwag.
 * **Import z Excela:** Kliknij **`📥 Import Excel`** i wskaż plik z dysku. Kreator pozwoli Ci łatwo dopasować kolumny z Twojego dotychczasowego arkusza do pól w programie. Jeśli plik posiada zakładkę *Historia zdarzeń*, przeniesie również wpisy historyczne.
 
-### 2.9. Kopia zapasowa i przywracanie bazy (Backup)
-W rozwijanym menu **`⚙️️ Opcje bazy ▾`**:
+### 2.10. Kopia zapasowa i przywracanie bazy (Backup)
+W rozwijanym menu **`⚙ Opcje bazy ▾`**:
 * **`💾 Utwórz kopię zapasową bazy (.db)`** – zapisuje wierną kopię zapasową całej bazy danych w wybranym miejscu (np. dysk sieciowy, pendrive).
 * **`🔄 Przywróć bazę z pliku (.db)`** – pozwala odtworzyć dane z wcześniej wykonanej kopii.
 
@@ -148,7 +153,7 @@ The application maintains a local SQLite database (`telefony.db`) automatically 
 * **Notes:** Select an entry in the history table and click **`✏️ Edytuj uwagę`** (*Edit Note*) or double-click the row to add or edit notes.
 
 ### 2.4. Search & Sorting
-* **Live Search:** Instant filtering across phone numbers (with or without dashes), device models, assigned users, and IMEI numbers.
+* **Live Search:** Instant filtering across phone numbers (with or without dashes), device models, assigned users, IMEI numbers, **SIM card numbers, and serial numbers**.
 * **Clear Search (`✕`):** Clears search query in one click.
 * **Column Sorting:** Click any column header in the device list or history log to sort ascending or descending (`▲` / `▼`).
 
@@ -158,12 +163,17 @@ The application maintains a local SQLite database (`telefony.db`) automatically 
 * **Restore:** Select an item in trash and click **`↩️ Przywróć telefon`** (*Restore Phone*).
 * **Hard Delete:** Inside the trash view, click **`❌ Usuń trwale z bazy`** (*Delete Permanently*) to irreversibly purge the device and its history.
 
-### 2.6. Employer Company Details
+### 2.6. Flagging a Device as Damaged / Warning
+* If a device is broken, damaged, or needs attention, select it and click the orange **`⚠️ Oznacz telefon`** (*Mark Phone*) button.
+* The device row will be highlighted in **red** on the active list for quick visual identification of equipment needing repair.
+* Once resolved, click **`✅ Odznacz telefon`** (*Unmark Phone*) to revert to the standard status.
+
+### 2.7. Employer Company Details
 1. Open the dropdown **`⚙️ Opcje bazy ▾`** and select **`🏢 Dane firmy / pracodawcy`**.
 2. Enter the Company Name, Address, and Tax ID (NIP).
 3. Click **`💾 Zapisz dane`**. Information will automatically appear on generated legal protocols.
 
-### 2.7. Protocol Generation (PDF & DOCX)
+### 2.8. Protocol Generation (PDF & DOCX)
 1. Click **`📋 Protokół`** on the top toolbar.
 2. Choose **Protokół przekazania** (*Handover*) or **Protokół zwrotu** (*Return*).
 3. Review the preview pane.
@@ -171,11 +181,11 @@ The application maintains a local SQLite database (`telefony.db`) automatically 
    * **`📄 Pobierz PDF`** – exports a formatted A4 PDF.
    * **`📝 Pobierz DOCX`** – exports an editable Microsoft Word document.
 
-### 2.8. Excel Import & Export (.xlsx)
+### 2.9. Excel Import & Export (.xlsx)
 * **Export to Excel:** Click **`📊 Eksport Excel`** to generate a styled workbook containing active devices and their event logs on separate sheets.
 * **Import from Excel:** Click **`📥 Import Excel`** to launch the interactive column mapper for spreadsheets.
 
-### 2.9. Database Backup & Restore
+### 2.10. Database Backup & Restore
 Under **`⚙️ Opcje bazy ▾`**:
 * **`💾 Utwórz kopię zapasową bazy (.db)`** – exports a point-in-time snapshot of the database.
 * **`🔄 Przywróć bazę z pliku (.db)`** – restores all database tables from an existing backup file.
