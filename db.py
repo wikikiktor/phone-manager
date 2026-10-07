@@ -199,6 +199,7 @@ def update_history_note(history_id, note):
             "UPDATE historia SET uwagi = ? WHERE id = ?",
             (note, history_id),
         )
+        conn.commit()
 
 def insert_phone(data):
     formatted_nr = format_phone_number(data.get("nr_tel",""))
@@ -239,6 +240,7 @@ def insert_phone(data):
                 "",
             ),
         )
+        conn.commit()
         return phone_id
 
 def update_phone(phone_id, data):
@@ -338,6 +340,7 @@ def update_phone(phone_id, data):
                         """,
                         (phone_id, now_str, kategoria, opis, ""),
                     )
+        conn.commit()
 
 def soft_delete_phone(phone_id):
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -351,19 +354,21 @@ def soft_delete_phone(phone_id):
             """,
             (phone_id, now_str, "Kosz / Usunięcie", "Telefon przeniesiono do kosza (usunięto z aktywnej listy).", ""),
         )
+        conn.commit()
 
 def restore_phone(phone_id):
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     with closing(get_connection()) as conn:
-            cursor = conn.cursor()
-            cursor.execute("UPDATE telefony SET czy_usuniety = 0 WHERE id = ?", (phone_id,))
-            cursor.execute(
-                """
-                INSERT INTO historia (telefon_id, data, kategoria, opis, uwagi)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (phone_id, now_str, "Przywrócenie", "Przywrócono urządzenie z kosza do aktywnych.", ""),
-            )
+        cursor = conn.cursor()
+        cursor.execute("UPDATE telefony SET czy_usuniety = 0 WHERE id = ?", (phone_id,))
+        cursor.execute(
+            """
+            INSERT INTO historia (telefon_id, data, kategoria, opis, uwagi)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (phone_id, now_str, "Przywrócenie", "Przywrócono urządzenie z kosza do aktywnych.", ""),
+        )
+        conn.commit()
 
 def hard_delete_phone(phone_id):
     with closing(get_connection()) as conn:
@@ -376,6 +381,7 @@ def hard_delete_phone(phone_id):
             "DELETE FROM telefony WHERE id = ?", 
             (phone_id,)
         )
+        conn.commit()
 
 def add_history_entry(phone_id, category, description, note=""):
     with closing(get_connection()) as conn:
@@ -393,6 +399,7 @@ def add_history_entry(phone_id, category, description, note=""):
                 note,
             ),
         )
+        conn.commit()
 
 def bulk_insert_phones(phone_records, history_records=None):
 
@@ -491,6 +498,7 @@ def bulk_insert_phones(phone_records, history_records=None):
                         ),
                     )
                     inserted_history_count += 1
+            conn.commit()
 
     return inserted_phones_count, inserted_history_count
 
@@ -669,6 +677,7 @@ def save_employer(nazwa_firmy, adres, nip):
                 "INSERT INTO pracodawca (nazwa_firmy, adres, nip) VALUES (?, ?, ?)",
                 (nazwa_firmy, adres, nip)
             )
+        conn.commit()
 
 def backup_database(dest_path):
     with closing(get_connection()) as src_conn:
