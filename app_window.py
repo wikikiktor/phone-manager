@@ -704,6 +704,9 @@ class APP(tk.Tk):
             self.selected_phone_id = db.insert_phone(data)
             messagebox.showinfo("Sukces", "Nowy telefon został pomyślnie zarejestrowany.")
         else:
+            current_row = db.get_phone_by_id(self.selected_phone_id)
+            if current_row:
+                data["czy_uszkodzony"] = current_row[11]
             db.update_phone(self.selected_phone_id, data)
             messagebox.showinfo("Sukces", "Dane telefonu zostały zaktualizowane.")
 

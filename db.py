@@ -642,10 +642,10 @@ def toggle_phone_warning(phone_id):
         row = cursor.fetchone()
         if not row:
             return 0
-    new_val = 0 if row[0] == 1 else 1
-    cursor.execute("UPDATE telefony SET czy_uszkodzony = ? WHERE id = ?", (new_val, phone_id,))
-    conn.commit()
-    return new_val
+        new_val = 0 if row[0] == 1 else 1
+        cursor.execute("UPDATE telefony SET czy_uszkodzony = ? WHERE id = ?", (new_val, phone_id,))
+        conn.commit()
+        return new_val
 
 def get_employer():
     with get_connection() as conn:
