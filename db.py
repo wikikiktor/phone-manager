@@ -100,6 +100,11 @@ def init_db():
         pass
 
     try:
+        cursor.execute("ALTER TABLE telefony ADD COLUMN czy_uszkodzony INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
         cursor.execute("ALTER TABLE historia ADD COLUMN uwagi TEXT DEFAULT ''")
     except sqlite3.OperationalError:
         pass
@@ -143,7 +148,7 @@ def search_phones(query_str, show_deleted=False):
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT id, nr_tel, osoba_uzytkujaca, model FROM telefony
+            SELECT id, nr_tel, osoba_uzytkujaca, model, COALESCE(czy_uszkodzony, 0) FROM telefony
             WHERE (
                 nr_tel LIKE ?
                 OR REPLACE(nr_tel, '-', '') LIKE ? 
@@ -164,7 +169,7 @@ def get_phone_by_id(phone_id):
         cursor.execute(
             """
             SELECT model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna, 
-            COALESCE(czy_protokol, 0), COALESCE(wyposazenie, ''), COALESCE(stan_baterii, 'Brak informacji')
+            COALESCE(czy_protokol, 0), COALESCE(wyposazenie, ''), COALESCE(stan_baterii, 'Brak informacji'), COALESCE(czy_uszkodzony, 0)
             FROM telefony
             WHERE id = ?
             """,
@@ -201,8 +206,8 @@ def insert_phone(data):
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO telefony (model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna, czy_protokol, wyposazenie, stan_baterii)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO telefony (model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna, czy_protokol, wyposazenie, stan_baterii, czy_uszkodzony)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 data["model"],
@@ -216,6 +221,7 @@ def insert_phone(data):
                 data.get("czy_protokol", 0),
                 data.get("wyposazenie", ""),
                 data.get("stan_baterii", "Brak informacji"),
+                data.get("czy_uszkodzony", 0),
             ),
         )
         phone_id = cursor.lastrowid
@@ -249,6 +255,7 @@ def update_phone(phone_id, data):
         "czy_protokol": "Protokół zdawczo-odbiorczy",
         "wyposazenie": "Wyposażenie dodatkowe",
         "stan_baterii": "Stan baterii",
+        "czy_uszkodzony": "Czy uszkodzony",
     }
 
     category_map = {
@@ -266,7 +273,8 @@ def update_phone(phone_id, data):
 
         cursor.execute(
             """
-            Select model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna, czy_protokol, wyposazenie, stan_baterii
+            Select model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, 
+                   osoba_odpowiedzialna, czy_protokol, wyposazenie, stan_baterii, czy_uszkodzony 
             FROM telefony
             WHERE id = ?
             """,
@@ -278,7 +286,7 @@ def update_phone(phone_id, data):
             """
             UPDATE telefony
             SET model = ?, nr_tel = ?, nr_sim = ?, imei = ?, nr_seryjny = ?, rodzaj = ?, osoba_uzytkujaca = ?, osoba_odpowiedzialna = ?,
-                czy_protokol = ?, wyposazenie = ?, stan_baterii = ?
+                czy_protokol = ?, wyposazenie = ?, stan_baterii = ?, czy_uszkodzony = ?
             WHERE id = ?
             """,
             (
@@ -293,6 +301,7 @@ def update_phone(phone_id, data):
                 data.get("czy_protokol", 0),
                 data.get("wyposazenie", ""),
                 data.get("stan_baterii", "Brak informacji"),
+                data.get("czy_uszkodzony", 0),
                 phone_id,
             ),
         )
@@ -300,7 +309,7 @@ def update_phone(phone_id, data):
         if old_row:
             keys = [
                 "model", "nr_tel", "nr_sim", "imei",
-                "nr_seryjny", "rodzaj", "osoba_uzytkujaca", "osoba_odpowiedzialna", "czy_protokol", "wyposazenie", "stan_baterii"
+                "nr_seryjny", "rodzaj", "osoba_uzytkujaca", "osoba_odpowiedzialna", "czy_protokol", "wyposazenie", "stan_baterii", "czy_uszkodzony",
             ]
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M")  
             
@@ -411,10 +420,16 @@ def bulk_insert_phones(phone_records, history_records=None):
 
             stan_baterii = (data.get("stan_baterii") or "Brak informacji").strip()
 
+            raw_uszk = data.get("czy_uszkodzony", 0)
+            if isinstance(raw_uszk, str):
+                czy_uszk = 1 if raw_uszk.strip().lower() in ("tak", "1", "true", "t", "x") else 0
+            else:
+                czy_uszk = 1 if raw_uszk else 0 
+
             cursor.execute(
                 """
-                INSERT INTO telefony (model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna, czy_protokol, wyposazenie, stan_baterii)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO telefony (model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna, czy_protokol, wyposazenie, stan_baterii, czy_uszkodzony)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     model,
@@ -428,6 +443,7 @@ def bulk_insert_phones(phone_records, history_records=None):
                     czy_prot,
                     wyposazenie,
                     stan_baterii,
+                    czy_uszk,
                 ),
             )
             phone_id = cursor.lastrowid
@@ -497,7 +513,7 @@ def export_to_excel(file_path, phone_ids=None):
     headers_phones = [
         "ID", "Model telefonu", "Numer telefonu", "Numer SIM",
         "IMEI", "Numer seryjny", "Rodzaj", "Osoba użytkująca", "Osoba odpowiedzialna",
-        "Protokół zdawczo-odbiorczy", "Wyposażenie dodatkowe", "Stan baterii"
+        "Protokół zdawczo-odbiorczy", "Wyposażenie dodatkowe", "Stan baterii", "Czy uszkodzony"
     ]
     ws_phones.append(headers_phones)
 
@@ -511,7 +527,7 @@ def export_to_excel(file_path, phone_ids=None):
             cursor.execute(
                 f"""
                 SELECT id, model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna, 
-                COALESCE(czy_protokol, 0), COALESCE(wyposazenie, ''), COALESCE(stan_baterii, 'Brak informacji')
+                COALESCE(czy_protokol, 0), COALESCE(wyposazenie, ''), COALESCE(stan_baterii, 'Brak informacji'), COALESCE(czy_uszkodzony, 0)
                 FROM telefony
                 WHERE id IN ({placeholders})
                 ORDER BY id ASC
@@ -521,7 +537,8 @@ def export_to_excel(file_path, phone_ids=None):
         else:
             cursor.execute(
                 """
-                SELECT id, model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna, COALESCE(czy_protokol, 0), COALESCE(wyposazenie, ''), COALESCE(stan_baterii, 'Brak informacji')
+                SELECT id, model, nr_tel, nr_sim, imei, nr_seryjny, rodzaj, osoba_uzytkujaca, osoba_odpowiedzialna, 
+                        COALESCE(czy_protokol, 0), COALESCE(wyposazenie, ''), COALESCE(stan_baterii, 'Brak informacji'), COALESCE(czy_uszkodzony, 0)
                 FROM telefony
                 ORDER BY id ASC
                 """
@@ -618,6 +635,18 @@ def get_phones_count(show_deleted=False):
         cursor.execute("SELECT COUNT(*) FROM telefony WHERE czy_usuniety = ?", (deleted_flag,))
         return cursor.fetchone()[0]
 
+def toggle_phone_warning(phone_id):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COALESCE(czy_uszkodzony, 0) FROM telefony WHERE id = ?", (phone_id,))
+        row = cursor.fetchone()
+        if not row:
+            return 0
+    new_val = 0 if row[0] == 1 else 1
+    cursor.execute("UPDATE telefony SET czy_uszkodzony = ? WHERE id = ?", (new_val, phone_id,))
+    conn.commit()
+    return new_val
+
 def get_employer():
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -651,3 +680,4 @@ def restore_database(backup_path):
             src_conn.backup(dst_conn)
 
     init_db()
+

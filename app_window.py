@@ -147,7 +147,21 @@ class APP(tk.Tk):
             background=[("active", "#DC2626"), ("disabled", "#FCA5A5")],
         )
 
-        # 4. Secondary Button (Standardowy szary/biały z ramką)
+        # 4. Warning Button (Uszkodzony / Naprawiony)
+        self.style.configure(
+            "Warning.TButton",
+            background="#FF7300",
+            foreground="#FFFFFF",
+            font=("Segoe UI", 9, "bold"),
+            borderwidth=0,
+            padding=(9, 5),
+        )
+        self.style.map(
+            "Warning.TButton",
+            background=[("active", "#FF9743"), ("disabled", "#FCA5A5")],
+        )
+
+        # 5. Secondary Button (Standardowy szary/biały z ramką)
         self.style.configure(
             "Secondary.TButton",
             background="#FFFFFF",
@@ -290,6 +304,13 @@ class APP(tk.Tk):
         # Paski zebry w tabeli
         self.tree.tag_configure("even", background="#FFFFFF")
         self.tree.tag_configure("odd", background="#F8FAFC")
+        self.tree.tag_configure("warning", background="#FEE2E2", foreground="#991B1B")
+
+        self.tree.tag_configure(
+            "warning_selected",
+            background="#FCA5A5",  
+            foreground="#7F1D1D"   
+        )
 
         scrollbar = ttk.Scrollbar(tree_card, orient=tk.VERTICAL, command=self.tree.yview)
         self.tree.configure(yscrollcommand=scrollbar.set)
@@ -393,6 +414,9 @@ class APP(tk.Tk):
 
         self.btn_delete = ttk.Button(btn_bar, text="🗑️ Do kosza", style="Danger.TButton", command=self.soft_delete_phone)
         self.btn_delete.pack(side=tk.RIGHT, padx=4)
+
+        self.btn_warning = ttk.Button(btn_bar, text="⚠️ Oznacz telefon", style="Warning.TButton", command=self.toggle_warning)
+        self.btn_warning.pack(side=tk.RIGHT, padx=4)
 
         self.btn_clear = ttk.Button(btn_bar, text="Wyczyść", style="Secondary.TButton", command=self.prepare_new_phone)
         self.btn_clear.pack(side=tk.RIGHT, padx=4)
@@ -560,12 +584,17 @@ class APP(tk.Tk):
 
         self.tree.delete(*self.tree.get_children())
         for idx, row in enumerate(rows):
-            tag = "even" if idx % 2 == 0 else "odd"
+            p_id, p_nr, p_user, p_model, p_warning = row
+
+            if p_warning == 1:
+                tag = "warning"
+            else:
+                tag = "even" if idx % 2 == 0 else "odd"
             self.tree.insert(
                 "",
                 tk.END,
-                iid=str(row[0]),
-                values=(row[1], row[2] or "[BRAK]", row[3]),
+                iid=str(p_id),
+                values=(p_nr, p_user or "[BRAK]", p_model),
                 tags=(tag,),
             )
 
@@ -583,8 +612,16 @@ class APP(tk.Tk):
         if not self.selected_phone_id:
             return
 
+        self._update_selection_style()
+
         row = db.get_phone_by_id(self.selected_phone_id)
         if row:
+            is_warning = row[11] if len(row) > 11 else 0
+            if is_warning:
+                self.btn_warning.config(text="✅ Odznacz telefon")
+            else:
+                self.btn_warning.config(text="⚠️ Oznacz telefon")
+            
             keys = [
                 "model", "nr_tel", "nr_sim", "imei",
                 "nr_seryjny", "rodzaj", "osoba_uzytkujaca", "osoba_odpowiedzialna",
@@ -623,11 +660,17 @@ class APP(tk.Tk):
         if not selected:
             return
         self.selected_phone_id = int(selected[0])
+        self._update_selection_style()
         self.refresh_selected_details()
 
     def prepare_new_phone(self):
         self.selected_phone_id = None
         self.tree.selection_remove(*self.tree.selection())
+        self.style.map(
+            "Treeview",
+            background=[("selected", "#DBEAFE")],
+            foreground=[("selected", "#1E3A8A")],
+        )
         for key, entry in self.entries.items():
             if key == "stan_baterii":
                 entry.set("Brak informacji")
@@ -862,4 +905,55 @@ class APP(tk.Tk):
                 "Błąd",
                 f"Wystąpił nieoczekiwany błąd podczas przywracania bazy:\n{e}",
                 parent=self,
+            )
+
+    def toggle_warning (self):
+        if not self.selected_phone_id:
+            messagebox.showwarning("Wybierz telefon", "Wybierz telefon z listy, aby go oznaczyć.")
+            return
+
+        # Przełączenie w bazie danych
+        row = db.get_phone_by_id(self.selected_phone_id)
+        is_warning = row[11] if row and len(row) > 11 else 0
+
+        if is_warning == 1:
+            potwierdzenie = messagebox.askyesno(
+                "Potwierdzenie odznaczenia",
+                "Czy na pewno chcesz odznaczyć ten telefon?",
+                parent=self,
+            )
+            if not potwierdzenie:
+                return
+            
+        new_state = db.toggle_phone_warning(self.selected_phone_id)
+        
+        # Aktualizacja tekstu przycisku w zależności od stanu
+        if new_state == 1:
+            self.btn_warning.config(text="✅ Odznacz telefon")
+        else:
+            self.btn_warning.config(text="⚠️ Oznacz telefon")
+
+        # Odświeżenie listy, aby kolor zmienił się w lewym panelu
+        self.load_phone_list()
+        self.tree.selection_set(str(self.selected_phone_id))
+        self.refresh_selected_details()
+
+    def _update_selection_style(self):
+        selected = self.tree.selection()
+        if not selected:
+            return
+
+        tags = self.tree.item(selected[0], "tags")
+        if "warning" in tags:
+            self.style.map(
+                "Treeview",
+                background=[("selected", "#FCA5A5")],  # Jasnoczerwone tło
+                foreground=[("selected", "#7F1D1D")],  # Ciemnoczerwony tekst
+            )
+        else:
+            # Standardowy błękitny kolor zaznaczenia
+            self.style.map(
+                "Treeview",
+                background=[("selected", "#DBEAFE")],
+                foreground=[("selected", "#1E3A8A")],
             )
