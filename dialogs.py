@@ -404,7 +404,7 @@ class ProtocolDialog(tk.Toplevel):
         selected_label = ""
 
         for row in phones:
-            p_id, p_nr, p_user, p_model = row
+            p_id, p_nr, p_user, p_model, p_warning = row
             label = f"{p_nr} | {p_user or '[Brak użytkownika]'}"
             self.phone_map[label] = p_id
             phone_labels.append(label)
