@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
@@ -144,7 +145,7 @@ def search_phones(query_str, show_deleted=False):
     digits_search = f"%{clean_digits}%" if clean_digits else search
     deleted_flag = 1 if show_deleted else 0
 
-    with get_connection() as conn:
+    with closing(get_connection()) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -164,7 +165,7 @@ def search_phones(query_str, show_deleted=False):
         return cursor.fetchall()
 
 def get_phone_by_id(phone_id):
-    with get_connection() as conn:
+    with closing(get_connection()) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -178,7 +179,7 @@ def get_phone_by_id(phone_id):
         return cursor.fetchone()
 
 def get_phone_history(phone_id):
-    with get_connection() as conn:
+    with closing(get_connection()) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -192,7 +193,7 @@ def get_phone_history(phone_id):
         return cursor.fetchall()
 
 def update_history_note(history_id, note):
-    with get_connection() as conn:
+    with closing(get_connection()) as conn:
         cursor = conn.cursor()
         cursor.execute(
             "UPDATE historia SET uwagi = ? WHERE id = ?",
@@ -202,7 +203,7 @@ def update_history_note(history_id, note):
 def insert_phone(data):
     formatted_nr = format_phone_number(data.get("nr_tel",""))
 
-    with get_connection() as conn:
+    with closing(get_connection()) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -268,7 +269,7 @@ def update_phone(phone_id, data):
         "stan_baterii": "Zmiana stanu baterii",
     }
 
-    with get_connection() as conn:
+    with closing(get_connection()) as conn:
         cursor = conn.cursor()
 
         cursor.execute(
@@ -340,7 +341,7 @@ def update_phone(phone_id, data):
 
 def soft_delete_phone(phone_id):
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    with get_connection() as conn:
+    with closing(get_connection()) as conn:
         cursor = conn.cursor()
         cursor.execute("UPDATE telefony SET czy_usuniety = 1 WHERE id = ?", (phone_id,))
         cursor.execute(
@@ -353,7 +354,7 @@ def soft_delete_phone(phone_id):
 
 def restore_phone(phone_id):
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    with get_connection() as conn:
+    with closing(get_connection()) as conn:
             cursor = conn.cursor()
             cursor.execute("UPDATE telefony SET czy_usuniety = 0 WHERE id = ?", (phone_id,))
             cursor.execute(
@@ -365,7 +366,7 @@ def restore_phone(phone_id):
             )
 
 def hard_delete_phone(phone_id):
-    with get_connection() as conn:
+    with closing(get_connection()) as conn:
         cursor = conn.cursor()
         cursor.execute(
             "DELETE FROM historia WHERE telefon_id = ?", 
@@ -377,7 +378,7 @@ def hard_delete_phone(phone_id):
         )
 
 def add_history_entry(phone_id, category, description, note=""):
-    with get_connection() as conn:
+    with closing(get_connection()) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -400,7 +401,7 @@ def bulk_insert_phones(phone_records, history_records=None):
     inserted_history_count = 0
     phone_id_map = {}
 
-    with get_connection() as conn:
+    with closing(get_connection()) as conn:
         cursor = conn.cursor()
 
         for data in phone_records:
@@ -517,7 +518,7 @@ def export_to_excel(file_path, phone_ids=None):
     ]
     ws_phones.append(headers_phones)
 
-    with get_connection() as conn:
+    with closing(get_connection()) as conn:
         cursor = conn.cursor()
 
         if phone_ids is not None:
@@ -571,7 +572,7 @@ def export_to_excel(file_path, phone_ids=None):
     headers_hist = ["Data", "Model telefonu", "Nr telefonu", "Kategoria", "Opis zdarzenia", "Uwagi"]
     ws_hist.append(headers_hist)
 
-    with get_connection() as conn:
+    with closing(get_connection()) as conn:
         cursor = conn.cursor()
         if phone_ids is not None:
             placeholders = ",".join("?" for _ in phone_ids)
@@ -630,13 +631,13 @@ def export_to_excel(file_path, phone_ids=None):
 
 def get_phones_count(show_deleted=False):
     deleted_flag = 1 if show_deleted else 0
-    with get_connection() as conn:
+    with closing(get_connection()) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM telefony WHERE czy_usuniety = ?", (deleted_flag,))
         return cursor.fetchone()[0]
 
 def toggle_phone_warning(phone_id):
-    with get_connection() as conn:
+    with closing(get_connection()) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT COALESCE(czy_uszkodzony, 0) FROM telefony WHERE id = ?", (phone_id,))
         row = cursor.fetchone()
@@ -648,13 +649,13 @@ def toggle_phone_warning(phone_id):
         return new_val
 
 def get_employer():
-    with get_connection() as conn:
+    with closing(get_connection()) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT nazwa_firmy, adres, nip FROM pracodawca ORDER BY id DESC LIMIT 1")                
         return cursor.fetchone()
 
 def save_employer(nazwa_firmy, adres, nip):
-    with get_connection() as conn:
+    with closing(get_connection()) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT id FROM pracodawca ORDER BY id DESC LIMIT 1")
         row = cursor.fetchone()
@@ -670,13 +671,13 @@ def save_employer(nazwa_firmy, adres, nip):
             )
 
 def backup_database(dest_path):
-    with get_connection() as src_conn:
+    with closing(get_connection()) as src_conn:
         with sqlite3.connect(dest_path) as dst_conn:
             src_conn.backup(dst_conn)
 
 def restore_database(backup_path):
     with sqlite3.connect(backup_path) as src_conn:
-        with get_connection() as dst_conn:
+        with closing(get_connection()) as dst_conn:
             src_conn.backup(dst_conn)
 
     init_db()
