@@ -67,7 +67,7 @@ def _excel_value_to_text(value: Any) -> str:
 # Klasa bazowa
 # ---------------------------------------------------------------------------
 
-class _BaseDialog(tk.Toplevel):
+class BaseDialog(tk.Toplevel):
 
     def __init__(self, parent: tk.Misc, title: str) -> None:
         super().__init__(parent)
@@ -122,7 +122,7 @@ class _BaseDialog(tk.Toplevel):
 # Historia zdarzeń
 # ---------------------------------------------------------------------------
 
-class AddEventDialog(_BaseDialog):
+class AddEventDialog(BaseDialog):
     def __init__(self, parent: tk.Misc, phone_id: int, on_save_callback: Callback = None) -> None:
         super().__init__(parent, "Dodaj zdarzenie / uwagę")
         self.phone_id = phone_id
@@ -150,7 +150,7 @@ class AddEventDialog(_BaseDialog):
         _run_callback(self.on_save_callback)
 
 
-class AddNoteDialog(_BaseDialog):
+class AddNoteDialog(BaseDialog):
     def __init__(
         self,
         parent: tk.Misc,
@@ -178,7 +178,7 @@ class AddNoteDialog(_BaseDialog):
 # Import z Excela
 # ---------------------------------------------------------------------------
 
-class ExcelImportDialog(_BaseDialog):
+class ExcelImportDialog(BaseDialog):
     """Import telefonów (i opcjonalnie historii) z pliku Excel z mapowaniem kolumn."""
 
     TARGET_FIELDS: tuple[tuple[str, str], ...] = (
@@ -413,7 +413,7 @@ class ExcelImportDialog(_BaseDialog):
 # Dane pracodawcy
 # ---------------------------------------------------------------------------
 
-class EmployerDialog(_BaseDialog):
+class EmployerDialog(BaseDialog):
     """Edycja danych pracodawcy wykorzystywanych w protokołach."""
 
     FIELDS: tuple[tuple[str, str], ...] = (
@@ -459,7 +459,7 @@ class EmployerDialog(_BaseDialog):
 # Protokoły
 # ---------------------------------------------------------------------------
 
-class ProtocolDialog(_BaseDialog):
+class ProtocolDialog(BaseDialog):
     def __init__(self, parent: tk.Misc, initial_phone_id: Optional[int] = None) -> None:
         super().__init__(parent, "Generowanie protokołu telefonu")
         self.initial_phone_id = initial_phone_id
