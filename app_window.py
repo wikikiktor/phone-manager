@@ -1,7 +1,12 @@
+from __future__ import annotations
+
 import sqlite3
 import tkinter as tk
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
+from typing import Any, Optional
 
 import db
 from dialogs import (
@@ -12,840 +17,929 @@ from dialogs import (
     ProtocolDialog,
 )
 
+# ---------------------------------------------------------------------------
+# Konfiguracja wyglądu
+# ---------------------------------------------------------------------------
 
-class APP(tk.Tk):
-    def __init__(self):
+APP_TITLE = "Baza Telefonów Służbowych"
+WINDOW_SIZE = "1180x720"
+WINDOW_MIN_SIZE = (1020, 640)
+
+FONT_FAMILY = "Segoe UI"
+FONT = (FONT_FAMILY, 9)
+FONT_BOLD = (FONT_FAMILY, 9, "bold")
+
+
+class Palette:
+    BG_APP = "#F1F5F9"
+    BG_CARD = "#FFFFFF"
+    BG_ROW_ALT = "#F8FAFC"
+    BORDER = "#CBD5E1"
+    TEXT_MAIN = "#0F172A"
+    TEXT_MUTED = "#64748B"
+    TEXT_HEADING = "#1E293B"
+    BRAND = "#1E3A8A"
+    HEADING_BG = "#E2E8F0"
+    BADGE_BG = "#E0E7FF"
+    BADGE_FG = "#3730A3"
+    SELECTION_BG = "#DBEAFE"
+    SELECTION_FG = "#1E3A8A"
+    WARNING_ROW_BG = "#FEE2E2"
+    WARNING_ROW_FG = "#991B1B"
+    WARNING_SELECTION_BG = "#FCA5A5"
+    WARNING_SELECTION_FG = "#7F1D1D"
+    DISABLED_BG = "#94A3B8"
+    DISABLED_FG = "#F1F5F9"
+
+
+BUTTON_STYLES: dict[str, tuple[str, str, tuple[int, int]]] = {
+    "Primary.TButton": ("#1E40AF", "#1D4ED8", (10, 6)),
+    "Success.TButton": ("#059669", "#047857", (10, 6)),
+    "Danger.TButton": ("#EF4444", "#DC2626", (9, 5)),
+    "Warning.TButton": ("#FF7300", "#FF9743", (9, 5)),
+}
+
+# ---------------------------------------------------------------------------
+# Dane formularza
+# ---------------------------------------------------------------------------
+
+USAGE_TYPES = ("Montage/Service", "Biurowy", "Zarząd", "Kierownik", "Inny")
+BATTERY_STATES = ("Dobry", "Zadowalający", "Słaby", db.DEFAULT_BATTERY_STATE)
+EQUIPMENT_OPTIONS = ("Ładowarka", "Etui", "Kabel USB", "Szkło ochronne")
+EQUIPMENT_SEPARATOR = ", "
+
+DEVICE_FIELDS: tuple[tuple[str, str], ...] = (
+    ("model", "Model tel:"),
+    ("nr_tel", "Nr telefonu:"),
+    ("imei", "Nr IMEI:"),
+    ("nr_sim", "Nr SIM:"),
+    ("nr_seryjny", "Nr seryjny:"),
+)
+PERSON_FIELDS: tuple[tuple[str, str], ...] = (
+    ("osoba_uzytkujaca", "Osoba użytkująca:"),
+    ("osoba_odpowiedzialna", "Osoba odpowiedzialna:"),
+)
+
+NEW_PHONE_STATUS = "Nowy telefon (niewprowadzony)"
+NO_USER = "[BRAK]"
+
+# ---------------------------------------------------------------------------
+# Tabele
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Column:
+    key: str
+    title: str
+    width: int
+    min_width: int = 20
+    stretch: bool = True
+
+
+PHONE_COLUMNS: tuple[Column, ...] = (
+    Column("nr_tel", "Nr telefonu", 115, 90, stretch=False),
+    Column("uzytkownik", "Użytkownik", 135, 100),
+    Column("model", "Model", 125, 90),
+)
+HISTORY_COLUMNS: tuple[Column, ...] = (
+    Column("data", "Data", 120, stretch=False),
+    Column("kategoria", "Kategoria", 125, stretch=False),
+    Column("opis", "Opis zdarzenia", 250),
+    Column("uwagi", "Uwagi", 220),
+)
+
+TAG_EVEN = "even"
+TAG_ODD = "odd"
+TAG_WARNING = "warning"
+SORT_ASC_ARROW = "  ▲"
+SORT_DESC_ARROW = "  ▼"
+
+@dataclass
+class SortState:
+    column: Optional[str] = None
+    reverse: bool = False
+
+    def toggle(self, column: str) -> None:
+        if self.column == column:
+            self.reverse = not self.reverse
+        else:
+            self.column = column
+            self.reverse = False
+
+
+def _timestamp() -> str:
+    return datetime.now().strftime("%Y%m%d_%H%M")  
+
+
+def _create_tree(
+    parent: tk.Misc, columns: Iterable[Column], on_heading_click: Callable[[str], None], **options: Any
+) -> ttk.Treeview:
+    columns = tuple(columns)
+    tree = ttk.Treeview(
+        parent, columns=[c.key for c in columns], show="headings", selectmode="browse", **options
+    )
+    for column in columns:
+        tree.heading(column.key, text=column.title, command=lambda k=column.key: on_heading_click(k))
+        tree.column(column.key, width=column.width, minwidth=column.min_width, stretch=column.stretch)
+
+    tree.tag_configure(TAG_EVEN, background=Palette.BG_CARD)
+    tree.tag_configure(TAG_ODD, background=Palette.BG_ROW_ALT)
+
+    scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=tree.yview)
+    tree.configure(yscrollcommand=scrollbar.set)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    tree.pack(fill=tk.BOTH, expand=True)
+    return tree
+
+
+def _apply_sort(tree: ttk.Treeview, columns: Iterable[Column], state: SortState) -> None:
+    for column in columns:
+        arrow = ""
+        if column.key == state.column:
+            arrow = SORT_DESC_ARROW if state.reverse else SORT_ASC_ARROW
+        tree.heading(column.key, text=column.title + arrow)
+
+    if state.column is None:
+        return
+
+    items = sorted(
+        tree.get_children(),
+        key=lambda item: tree.set(item, state.column).lower(),
+        reverse=state.reverse,
+    )
+    for index, item in enumerate(items):
+        tree.move(item, "", index)
+
+
+def _apply_row_tags(tree: ttk.Treeview, warning_items: Iterable[str] = ()) -> None:
+    warning_items = set(warning_items)
+    for index, item in enumerate(tree.get_children()):
+        if item in warning_items:
+            tag = TAG_WARNING
+        else:
+            tag = TAG_EVEN if index % 2 == 0 else TAG_ODD
+        tree.item(item, tags=(tag,))
+
+
+# ---------------------------------------------------------------------------
+# Okno główne
+# ---------------------------------------------------------------------------
+
+class PhoneDatabaseApp(tk.Tk):
+    def __init__(self) -> None:
         super().__init__()
-        self.title("Baza Telefonów Służbowych")
-        self.geometry("1180x720")
-        self.minsize(1020, 640)
+        self.title(APP_TITLE)
+        self.geometry(WINDOW_SIZE)
+        self.minsize(*WINDOW_MIN_SIZE)
 
-        self.selected_phone_id = None
+        self.selected_phone_id: Optional[int] = None
         self.show_deleted_var = tk.BooleanVar(value=False)
-
-        self.sort_column = None
-        self.sort_reverse = False
-
-        self.history_sort_column = None
-        self.history_sort_reverse = False
-
+        self.search_var = tk.StringVar()
         self.var_protocol = tk.BooleanVar(value=False)
-        self.wyposazenie_options = ["Ładowarka", "Etui", "Kabel USB", "Szkło ochronne"]
-        self.wyposazenie_vars = {
-            opt: tk.BooleanVar(value=False) for opt in self.wyposazenie_options
-        }
+        self.equipment_vars = {option: tk.BooleanVar(value=False) for option in EQUIPMENT_OPTIONS}
+        self.entries: dict[str, ttk.Entry] = {}
+
+        self._phone_sort = SortState()
+        self._history_sort = SortState()
+        self._warning_items: set[str] = set()
 
         db.init_db()
-        self.setup_styles()
-        self.build_ui()
+        self._setup_styles()
+        self._build_ui()
+        self.search_var.trace_add("write", lambda *_args: self.load_phone_list())
         self.load_phone_list()
 
-    def setup_styles(self):
+    # =======================================================================
+    # Style
+    # =======================================================================
+
+    def _setup_styles(self) -> None:
         self.style = ttk.Style(self)
         try:
             self.style.theme_use("clam")
-        except Exception:
+        except tk.TclError:
             pass
 
-        # Paleta barw
-        self.BG_APP = "#F1F5F9"        # Jasne tło okna
-        self.BG_CARD = "#FFFFFF"       # Białe tło kart
-        self.BORDER_COLOR = "#CBD5E1"  # Ramki
-        self.TEXT_MAIN = "#0F172A"     # Ciemny tekst główny
-        self.TEXT_MUTED = "#64748B"    # Wygaszony tekst
+        self.configure(bg=Palette.BG_APP)
+        configure = self.style.configure
 
-        self.configure(bg=self.BG_APP)
+        configure(".", background=Palette.BG_APP, foreground=Palette.TEXT_MAIN, font=FONT)
+        configure("TFrame", background=Palette.BG_APP)
+        configure("Card.TFrame", background=Palette.BG_CARD)
+        configure("TLabel", background=Palette.BG_APP, foreground=Palette.TEXT_MAIN, font=FONT)
+        configure("Card.TLabel", background=Palette.BG_CARD, foreground=Palette.TEXT_MAIN, font=FONT)
+        configure("CardBold.TLabel", background=Palette.BG_CARD, font=FONT_BOLD)
+        configure("CardItalic.TLabel", background=Palette.BG_CARD, font=(FONT_FAMILY, 9, "italic"))
+        configure("SearchIcon.TLabel", font=(FONT_FAMILY, 10))
 
-        # Bazowe konfiguracje
-        self.style.configure(".", background=self.BG_APP, foreground=self.TEXT_MAIN, font=("Segoe UI", 9))
-        self.style.configure("TFrame", background=self.BG_APP)
-        self.style.configure("Card.TFrame", background=self.BG_CARD)
-        self.style.configure("TLabel", background=self.BG_APP, foreground=self.TEXT_MAIN, font=("Segoe UI", 9))
-        self.style.configure("Card.TLabel", background=self.BG_CARD, foreground=self.TEXT_MAIN, font=("Segoe UI", 9))
-
-        # Nagłówki
-        self.style.configure("BrandTitle.TLabel", background=self.BG_APP, foreground="#1E3A8A", font=("Segoe UI", 13, "bold"))
-        self.style.configure("BrandSub.TLabel", background=self.BG_APP, foreground=self.TEXT_MUTED, font=("Segoe UI", 8))
-        self.style.configure("CardTitle.TLabel", background=self.BG_CARD, foreground="#1E293B", font=("Segoe UI", 10, "bold"))
-        self.style.configure("StatusInfo.TLabel", background=self.BG_CARD, foreground=self.TEXT_MUTED, font=("Segoe UI", 8, "italic"))
-
-        # Plakietka licznika (Badge)
-        self.style.configure(
+        configure(
+            "BrandTitle.TLabel",
+            background=Palette.BG_APP,
+            foreground=Palette.BRAND,
+            font=(FONT_FAMILY, 13, "bold"),
+        )
+        configure(
+            "BrandSub.TLabel",
+            background=Palette.BG_APP,
+            foreground=Palette.TEXT_MUTED,
+            font=(FONT_FAMILY, 8),
+        )
+        configure(
+            "CardTitle.TLabel",
+            background=Palette.BG_CARD,
+            foreground=Palette.TEXT_HEADING,
+            font=(FONT_FAMILY, 10, "bold"),
+        )
+        configure(
+            "StatusInfo.TLabel",
+            background=Palette.BG_CARD,
+            foreground=Palette.TEXT_MUTED,
+            font=(FONT_FAMILY, 8, "italic"),
+        )
+        configure(
             "Badge.TLabel",
-            background="#E0E7FF",
-            foreground="#3730A3",
-            font=("Segoe UI", 9, "bold"),
+            background=Palette.BADGE_BG,
+            foreground=Palette.BADGE_FG,
+            font=FONT_BOLD,
             padding=(10, 4),
         )
 
-        # Ramki LabelFrame
-        self.style.configure(
+        configure(
             "Card.TLabelframe",
-            background=self.BG_CARD,
-            bordercolor=self.BORDER_COLOR,
+            background=Palette.BG_CARD,
+            bordercolor=Palette.BORDER,
             relief="solid",
             borderwidth=1,
         )
-        self.style.configure(
+        configure(
             "Card.TLabelframe.Label",
-            background=self.BG_CARD,
-            foreground="#1E3A8A",
-            font=("Segoe UI", 10, "bold"),
+            background=Palette.BG_CARD,
+            foreground=Palette.BRAND,
+            font=(FONT_FAMILY, 10, "bold"),
         )
 
-        # Pola tekstowe i listy rozwijane
-        self.style.configure("TEntry", fieldbackground="#FFFFFF", padding=5)
-        self.style.configure("TCombobox", fieldbackground="#FFFFFF", padding=4)
-        self.style.map("TCombobox", fieldbackground=[("readonly", "#FFFFFF")])
+        configure("TEntry", fieldbackground=Palette.BG_CARD, padding=5)
+        configure("TCombobox", fieldbackground=Palette.BG_CARD, padding=4)
+        self.style.map("TCombobox", fieldbackground=[("readonly", Palette.BG_CARD)])
 
-        # Checkbuttony
-        self.style.configure("TCheckbutton", background=self.BG_APP, font=("Segoe UI", 9))
-        self.style.configure("Card.TCheckbutton", background=self.BG_CARD, font=("Segoe UI", 9))
+        configure("TCheckbutton", background=Palette.BG_APP, font=FONT)
+        configure("Card.TCheckbutton", background=Palette.BG_CARD, font=FONT)
 
-        # --- PRZYCISKI ---
-        # 1. Primary Button (Akcja główna, np. Nowy telefon)
-        self.style.configure(
-            "Primary.TButton",
-            background="#1E40AF",
-            foreground="#FFFFFF",
-            font=("Segoe UI", 9, "bold"),
-            borderwidth=0,
-            padding=(10, 6),
-        )
-        self.style.map(
-            "Primary.TButton",
-            background=[("active", "#1D4ED8"), ("disabled", "#94A3B8")],
-            foreground=[("disabled", "#F1F5F9")],
-        )
+        for style_name, (background, active, padding) in BUTTON_STYLES.items():
+            configure(
+                style_name,
+                background=background,
+                foreground="#FFFFFF",
+                font=FONT_BOLD,
+                borderwidth=0,
+                padding=padding,
+            )
+            self.style.map(
+                style_name,
+                background=[("active", active), ("disabled", Palette.DISABLED_BG)],
+                foreground=[("disabled", Palette.DISABLED_FG)],
+            )
 
-        # 2. Success Button (Zapisz zmiany)
-        self.style.configure(
-            "Success.TButton",
-            background="#059669",
-            foreground="#FFFFFF",
-            font=("Segoe UI", 9, "bold"),
-            borderwidth=0,
-            padding=(10, 6),
-        )
-        self.style.map(
-            "Success.TButton",
-            background=[("active", "#047857"), ("disabled", "#94A3B8")],
-            foreground=[("disabled", "#F1F5F9")],
-        )
-
-        # 3. Danger Button (Kosz / Usuń)
-        self.style.configure(
-            "Danger.TButton",
-            background="#EF4444",
-            foreground="#FFFFFF",
-            font=("Segoe UI", 9, "bold"),
-            borderwidth=0,
-            padding=(9, 5),
-        )
-        self.style.map(
-            "Danger.TButton",
-            background=[("active", "#DC2626"), ("disabled", "#FCA5A5")],
-        )
-
-        # 4. Warning Button (Uszkodzony / Naprawiony)
-        self.style.configure(
-            "Warning.TButton",
-            background="#FF7300",
-            foreground="#FFFFFF",
-            font=("Segoe UI", 9, "bold"),
-            borderwidth=0,
-            padding=(9, 5),
-        )
-        self.style.map(
-            "Warning.TButton",
-            background=[("active", "#FF9743"), ("disabled", "#FCA5A5")],
-        )
-
-        # 5. Secondary Button (Standardowy szary/biały z ramką)
-        self.style.configure(
+        configure(
             "Secondary.TButton",
-            background="#FFFFFF",
-            foreground="#1E293B",
-            font=("Segoe UI", 9),
+            background=Palette.BG_CARD,
+            foreground=Palette.TEXT_HEADING,
+            font=FONT,
             borderwidth=1,
-            bordercolor=self.BORDER_COLOR,
+            bordercolor=Palette.BORDER,
             padding=(8, 5),
         )
-        self.style.map(
-            "Secondary.TButton",
-            background=[("active", "#F8FAFC")],
-        )
+        self.style.map("Secondary.TButton", background=[("active", Palette.BG_ROW_ALT)])
 
-        # --- TABELE (Treeview) ---
-        self.style.configure(
+        configure(
             "Treeview",
-            background="#FFFFFF",
-            fieldbackground="#FFFFFF",
-            foreground=self.TEXT_MAIN,
+            background=Palette.BG_CARD,
+            fieldbackground=Palette.BG_CARD,
+            foreground=Palette.TEXT_MAIN,
             rowheight=26,
-            font=("Segoe UI", 9),
-            bordercolor=self.BORDER_COLOR,
+            font=FONT,
+            bordercolor=Palette.BORDER,
             borderwidth=1,
         )
-        self.style.configure(
+        configure(
             "Treeview.Heading",
-            background="#E2E8F0",
-            foreground="#0F172A",
-            font=("Segoe UI", 9, "bold"),
+            background=Palette.HEADING_BG,
+            foreground=Palette.TEXT_MAIN,
+            font=FONT_BOLD,
             padding=(6, 6),
             relief="flat",
         )
-        self.style.map(
-            "Treeview.Heading",
-            background=[("active", "#CBD5E1")],
-        )
+        self.style.map("Treeview.Heading", background=[("active", Palette.BORDER)])
         self.style.map(
             "Treeview",
-            background=[("selected", "#DBEAFE")],
-            foreground=[("selected", "#1E3A8A")],
+            background=[("selected", Palette.SELECTION_BG)],
+            foreground=[("selected", Palette.SELECTION_FG)],
+        )
+        self._set_phone_selection_colors(warning=False)
+
+    def _set_phone_selection_colors(self, *, warning: bool) -> None:
+        if warning:
+            colors = (Palette.WARNING_SELECTION_BG, Palette.WARNING_SELECTION_FG)
+        else:
+            colors = (Palette.SELECTION_BG, Palette.SELECTION_FG)
+        self.style.map(
+            "Phones.Treeview",
+            background=[("selected", colors[0])],
+            foreground=[("selected", colors[1])],
         )
 
-    def build_ui(self):
-        # =========================================================================
-        # 1. GÓRNY PASEK NARZĘDZIOWY (2 wiersze: Pasek akcji + Pasek wyszukiwania)
-        # =========================================================================
-        header_container = ttk.Frame(self, padding=(14, 10, 14, 6))
-        header_container.pack(fill=tk.X)
+    # =======================================================================
+    # Budowa interfejsu
+    # =======================================================================
 
-        # --- Wiersz 1: Logo i główne akcje ---
-        top_row = ttk.Frame(header_container)
+    def _build_ui(self) -> None:
+        self._build_header()
+
+        main_paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
+        main_paned.pack(fill=tk.BOTH, expand=True, padx=14, pady=(4, 12))
+
+        left_frame = ttk.Frame(main_paned, width=390)
+        main_paned.add(left_frame, weight=1)
+        self._build_phone_list(left_frame)
+
+        right_frame = ttk.Frame(main_paned)
+        main_paned.add(right_frame, weight=2)
+        self._build_details(right_frame)
+        self._build_history(right_frame)
+
+    def _build_header(self) -> None:
+        header = ttk.Frame(self, padding=(14, 10, 14, 6))
+        header.pack(fill=tk.X)
+
+        top_row = ttk.Frame(header)
         top_row.pack(fill=tk.X, pady=(0, 8))
 
-        brand_frame = ttk.Frame(top_row)
-        brand_frame.pack(side=tk.LEFT)
-        ttk.Label(brand_frame, text="📱 Baza Telefonów", style="BrandTitle.TLabel").pack(anchor=tk.W)
-        ttk.Label(brand_frame, text="System ewidencji sprzętu i protokołów", style="BrandSub.TLabel").pack(anchor=tk.W)
+        brand = ttk.Frame(top_row)
+        brand.pack(side=tk.LEFT)
+        ttk.Label(brand, text="📱 Baza Telefonów", style="BrandTitle.TLabel").pack(anchor=tk.W)
+        ttk.Label(
+            brand, text="System ewidencji sprzętu i protokołów", style="BrandSub.TLabel"
+        ).pack(anchor=tk.W)
 
-        # Przyciski akcji z prawej
-        btn_actions = ttk.Frame(top_row)
-        btn_actions.pack(side=tk.RIGHT)
+        actions = ttk.Frame(top_row)
+        actions.pack(side=tk.RIGHT)
+        for text, style, command in (
+            ("+ Nowy telefon", "Primary.TButton", self.prepare_new_phone),
+            ("📋 Protokół", "Secondary.TButton", self.open_protocol_dialog),
+            ("📊 Eksport Excel", "Secondary.TButton", self.export_to_excel),
+            ("📥 Import Excel", "Secondary.TButton", self.open_excel_import),
+        ):
+            ttk.Button(actions, text=text, style=style, command=command).pack(side=tk.LEFT, padx=3)
 
-        ttk.Button(btn_actions, text="+ Nowy telefon", style="Primary.TButton", command=self.prepare_new_phone).pack(side=tk.LEFT, padx=3)
-        ttk.Button(btn_actions, text="📋 Protokół", style="Secondary.TButton", command=self.open_protocol_dialog).pack(side=tk.LEFT, padx=3)
-        ttk.Button(btn_actions, text="📊 Eksport Excel", style="Secondary.TButton", command=self.export_to_excel).pack(side=tk.LEFT, padx=3)
-        ttk.Button(btn_actions, text="📥 Import Excel", style="Secondary.TButton", command=self.open_excel_import).pack(side=tk.LEFT, padx=3)
-
-        # Menu narzędzi bazy (zamiast wielu uciętych przycisków)
         self.db_menu = tk.Menu(self, tearoff=0)
         self.db_menu.add_command(label="🏢 Dane firmy / pracodawcy", command=self.open_employer_dialog)
         self.db_menu.add_separator()
-        self.db_menu.add_command(label="💾 Utwórz kopię zapasową bazy (.db)", command=self.create_db_backup)
+        self.db_menu.add_command(
+            label="💾 Utwórz kopię zapasową bazy (.db)", command=self.create_db_backup
+        )
         self.db_menu.add_command(label="🔄 Przywróć bazę z pliku (.db)", command=self.restore_db_backup)
 
         self.btn_db_tools = ttk.Button(
-            btn_actions,
-            text="⚙️ Opcje bazy ▾",
-            style="Secondary.TButton",
-            command=self.show_db_tools_menu,
+            actions, text="⚙️ Opcje bazy ▾", style="Secondary.TButton", command=self.show_db_tools_menu
         )
         self.btn_db_tools.pack(side=tk.LEFT, padx=3)
 
-        # --- Wiersz 2: Wyszukiwanie, filtr kosza i licznik ---
-        search_row = ttk.Frame(header_container)
+        search_row = ttk.Frame(header)
         search_row.pack(fill=tk.X)
 
         search_box = ttk.Frame(search_row)
         search_box.pack(side=tk.LEFT, fill=tk.X)
 
-        ttk.Label(search_box, text="🔍", font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 4))
-        self.search_var = tk.StringVar()
-        self.search_var.trace_add("write", lambda *args: self.load_phone_list())
+        ttk.Label(search_box, text="🔍", style="SearchIcon.TLabel").pack(side=tk.LEFT, padx=(0, 4))
         self.search_entry = ttk.Entry(search_box, textvariable=self.search_var, width=36)
         self.search_entry.pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(
+            search_box, text="✕", width=2, style="Secondary.TButton", command=self.clear_search
+        ).pack(side=tk.LEFT, padx=(0, 10))
 
-        # Przycisk czyszczenia wyszukiwarki
-        ttk.Button(search_box, text="✕", width=2, style="Secondary.TButton", command=self.clear_search).pack(side=tk.LEFT, padx=(0, 10))
-
-        self.chk_trash = ttk.Checkbutton(
+        ttk.Checkbutton(
             search_box,
             text="Pokaż kosz (usunięte)",
             variable=self.show_deleted_var,
             command=self.on_toggle_trash_view,
-        )
-        self.chk_trash.pack(side=tk.LEFT)
+        ).pack(side=tk.LEFT)
 
-        # Plakietka licznika
-        self.lbl_count = ttk.Label(search_row, text="Łącznie telefonów: 0", style="Badge.TLabel")
+        self.lbl_count = ttk.Label(search_row, style="Badge.TLabel")
         self.lbl_count.pack(side=tk.RIGHT)
 
-        # =========================================================================
-        # 2. GŁÓWNY PODZIAŁ (PANED WINDOW: LEWY I PRAWY PANEL)
-        # =========================================================================
-        main_paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
-        main_paned.pack(fill=tk.BOTH, expand=True, padx=14, pady=(4, 12))
+    def _build_phone_list(self, parent: ttk.Frame) -> None:
+        card = ttk.LabelFrame(parent, text="  Lista urządzeń  ", style="Card.TLabelframe", padding=6)
+        card.pack(fill=tk.BOTH, expand=True)
 
-        # --- LEWY PANEL: LISTA TELEFONÓW ---
-        left_frame = ttk.Frame(main_paned, width=390)
-        main_paned.add(left_frame, weight=1)
-
-        tree_card = ttk.LabelFrame(left_frame, text="  Lista urządzeń  ", style="Card.TLabelframe", padding=6)
-        tree_card.pack(fill=tk.BOTH, expand=True)
-
-        cols = ("nr_tel", "uzytkownik", "model")
-        self.tree = ttk.Treeview(tree_card, columns=cols, show="headings", selectmode="browse")
-
-        self.col_titles = {
-            "nr_tel": "Nr telefonu",
-            "uzytkownik": "Użytkownik",
-            "model": "Model",
-        }
-        for col, title in self.col_titles.items():
-            self.tree.heading(col, text=title, command=lambda c=col: self.on_phone_column_click(c))
-
-        self.tree.column("nr_tel", width=115, minwidth=90, stretch=False)
-        self.tree.column("uzytkownik", width=135, minwidth=100)
-        self.tree.column("model", width=125, minwidth=90)
-
-        # Paski zebry w tabeli
-        self.tree.tag_configure("even", background="#FFFFFF")
-        self.tree.tag_configure("odd", background="#F8FAFC")
-        self.tree.tag_configure("warning", background="#FEE2E2", foreground="#991B1B")
-
-        self.tree.tag_configure(
-            "warning_selected",
-            background="#FCA5A5",  
-            foreground="#7F1D1D"   
+        self.tree = _create_tree(
+            card, PHONE_COLUMNS, self.on_phone_column_click, style="Phones.Treeview"
         )
-
-        scrollbar = ttk.Scrollbar(tree_card, orient=tk.VERTICAL, command=self.tree.yview)
-        self.tree.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.tree.pack(fill=tk.BOTH, expand=True)
+        self.tree.tag_configure(
+            TAG_WARNING, background=Palette.WARNING_ROW_BG, foreground=Palette.WARNING_ROW_FG
+        )
         self.tree.bind("<<TreeviewSelect>>", self.on_phone_select)
 
-        # --- PRAWY PANEL: SZCZEGÓŁY + HISTORIA ---
-        right_frame = ttk.Frame(main_paned)
-        main_paned.add(right_frame, weight=2)
-
-        # -------------------------------------------------------------
-        # Sekcja A: Formularz edycji danych telefonu
-        # -------------------------------------------------------------
-        details_box = ttk.LabelFrame(right_frame, text="  Szczegóły telefonu  ", style="Card.TLabelframe", padding=12)
-        details_box.pack(fill=tk.X, pady=(0, 8))
-
-        form_grid = ttk.Frame(details_box, style="Card.TFrame")
-        form_grid.pack(fill=tk.X)
-
-        self.entries = {}
-
-        # Kolumna lewa: Dane sprzętowe
-        left_sub = ttk.LabelFrame(form_grid, text=" Identyfikacja urządzenia ", style="Card.TLabelframe", padding=8)
-        left_sub.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 6))
-
-        dev_fields = [
-            ("Model tel:", "model"),
-            ("Nr telefonu:", "nr_tel"),
-            ("Nr IMEI:", "imei"),
-            ("Nr SIM:", "nr_sim"),
-            ("Nr seryjny:", "nr_seryjny"),
-        ]
-        for r, (lbl, key) in enumerate(dev_fields):
-            ttk.Label(left_sub, text=lbl, style="Card.TLabel").grid(row=r, column=0, sticky=tk.W, pady=3, padx=(0, 6))
-            ent = ttk.Entry(left_sub)
-            if key == "nr_tel":
-                ent.bind("<FocusOut>", self._format_phone_entry)
-            ent.grid(row=r, column=1, sticky=tk.EW, pady=3)
-            self.entries[key] = ent
-        left_sub.columnconfigure(1, weight=1)
-
-        # Kolumna prawa: Przypisanie i eksploatacja
-        right_sub = ttk.LabelFrame(form_grid, text=" Przypisanie i eksploatacja ", style="Card.TLabelframe", padding=8)
-        right_sub.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(6, 0))
-
-        ttk.Label(right_sub, text="Osoba użytkująca:", style="Card.TLabel").grid(row=0, column=0, sticky=tk.W, pady=3, padx=(0, 6))
-        self.entries["osoba_uzytkujaca"] = ttk.Entry(right_sub)
-        self.entries["osoba_uzytkujaca"].grid(row=0, column=1, sticky=tk.EW, pady=3)
-
-        ttk.Label(right_sub, text="Osoba odpowiedzialna:", style="Card.TLabel").grid(row=1, column=0, sticky=tk.W, pady=3, padx=(0, 6))
-        self.entries["osoba_odpowiedzialna"] = ttk.Entry(right_sub)
-        self.entries["osoba_odpowiedzialna"].grid(row=1, column=1, sticky=tk.EW, pady=3)
-
-        ttk.Label(right_sub, text="Rodzaj użytkowania:", style="Card.TLabel").grid(row=2, column=0, sticky=tk.W, pady=3, padx=(0, 6))
-        self.entries["rodzaj"] = ttk.Combobox(
-            right_sub,
-            values=["Montage/Service", "Biurowy", "Zarząd", "Kierownik", "Inny"],
+    def _build_details(self, parent: ttk.Frame) -> None:
+        details = ttk.LabelFrame(
+            parent, text="  Szczegóły telefonu  ", style="Card.TLabelframe", padding=12
         )
-        self.entries["rodzaj"].grid(row=2, column=1, sticky=tk.EW, pady=3)
+        details.pack(fill=tk.X, pady=(0, 8))
 
-        ttk.Label(right_sub, text="Stan baterii:", style="Card.TLabel").grid(row=3, column=0, sticky=tk.W, pady=3, padx=(0, 6))
-        self.entries["stan_baterii"] = ttk.Combobox(
-            right_sub,
-            values=["Dobry", "Zadowalający", "Słaby", "Brak informacji"],
-            state="readonly",
+        form = ttk.Frame(details, style="Card.TFrame")
+        form.pack(fill=tk.X)
+        self._build_device_fields(form)
+        self._build_assignment_fields(form)
+        self._build_equipment_row(details)
+        self._build_form_buttons(details)
+
+    @staticmethod
+    def _add_form_label(parent: tk.Misc, row: int, text: str) -> None:
+        ttk.Label(parent, text=text, style="Card.TLabel").grid(
+            row=row, column=0, sticky=tk.W, pady=3, padx=(0, 6)
         )
-        self.entries["stan_baterii"].set("Brak informacji")
-        self.entries["stan_baterii"].grid(row=3, column=1, sticky=tk.EW, pady=3)
 
-        # Protokół checkbutton
-        ttk.Label(right_sub, text="Wysłany protokół:", style="Card.TLabel").grid(row=4, column=0, sticky=tk.W, pady=3, padx=(0, 6))
-        self.chk_protocol = ttk.Checkbutton(right_sub, text="Podpisany i dostarczony", variable=self.var_protocol, style="Card.TCheckbutton")
-        self.chk_protocol.grid(row=4, column=1, sticky=tk.W, pady=3)
+    def _build_device_fields(self, parent: ttk.Frame) -> None:
+        box = ttk.LabelFrame(
+            parent, text=" Identyfikacja urządzenia ", style="Card.TLabelframe", padding=8
+        )
+        box.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 6))
+        box.columnconfigure(1, weight=1)
 
-        right_sub.columnconfigure(1, weight=1)
+        for row, (key, label) in enumerate(DEVICE_FIELDS):
+            self._add_form_label(box, row, label)
+            entry = ttk.Entry(box)
+            entry.grid(row=row, column=1, sticky=tk.EW, pady=3)
+            self.entries[key] = entry
 
-        # Sekcja wyposażenia (akcesoria)
-        equip_card = ttk.Frame(details_box, style="Card.TFrame")
-        equip_card.pack(fill=tk.X, pady=(8, 0))
+        self.entries["nr_tel"].bind("<FocusOut>", self._format_phone_entry)
 
-        ttk.Label(equip_card, text="Wyposażenie:", font=("Segoe UI", 9, "bold"), style="Card.TLabel").pack(side=tk.LEFT, padx=(4, 12))
-        for item in self.wyposazenie_options:
-            ttk.Checkbutton(
-                equip_card,
-                text=item,
-                variable=self.wyposazenie_vars[item],
-                style="Card.TCheckbutton",
-            ).pack(side=tk.LEFT, padx=8)
+    def _build_assignment_fields(self, parent: ttk.Frame) -> None:
+        box = ttk.LabelFrame(
+            parent, text=" Przypisanie i eksploatacja ", style="Card.TLabelframe", padding=8
+        )
+        box.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(6, 0))
+        box.columnconfigure(1, weight=1)
 
-        # Dolny pasek akcji formularza
-        btn_bar = ttk.Frame(details_box, style="Card.TFrame")
-        btn_bar.pack(fill=tk.X, pady=(12, 0))
+        for row, (key, label) in enumerate(PERSON_FIELDS):
+            self._add_form_label(box, row, label)
+            entry = ttk.Entry(box)
+            entry.grid(row=row, column=1, sticky=tk.EW, pady=3)
+            self.entries[key] = entry
 
-        self.lbl_editing_status = ttk.Label(btn_bar, text="Nowy telefon (niewprowadzony)", style="StatusInfo.TLabel")
+        row = len(PERSON_FIELDS)
+        self._add_form_label(box, row, "Rodzaj użytkowania:")
+        self.entries["rodzaj"] = ttk.Combobox(box, values=USAGE_TYPES)
+        self.entries["rodzaj"].grid(row=row, column=1, sticky=tk.EW, pady=3)
+
+        row += 1
+        self._add_form_label(box, row, "Stan baterii:")
+        self.entries["stan_baterii"] = ttk.Combobox(box, values=BATTERY_STATES, state="readonly")
+        self.entries["stan_baterii"].set(db.DEFAULT_BATTERY_STATE)
+        self.entries["stan_baterii"].grid(row=row, column=1, sticky=tk.EW, pady=3)
+
+        row += 1
+        self._add_form_label(box, row, "Wysłany protokół:")
+        ttk.Checkbutton(
+            box,
+            text="Podpisany i dostarczony",
+            variable=self.var_protocol,
+            style="Card.TCheckbutton",
+        ).grid(row=row, column=1, sticky=tk.W, pady=3)
+
+    def _build_equipment_row(self, parent: ttk.Frame) -> None:
+        row = ttk.Frame(parent, style="Card.TFrame")
+        row.pack(fill=tk.X, pady=(8, 0))
+
+        ttk.Label(row, text="Wyposażenie:", style="CardBold.TLabel").pack(side=tk.LEFT, padx=(4, 12))
+        for option, variable in self.equipment_vars.items():
+            ttk.Checkbutton(row, text=option, variable=variable, style="Card.TCheckbutton").pack(
+                side=tk.LEFT, padx=8
+            )
+
+    def _build_form_buttons(self, parent: ttk.Frame) -> None:
+        bar = ttk.Frame(parent, style="Card.TFrame")
+        bar.pack(fill=tk.X, pady=(12, 0))
+
+        self.lbl_editing_status = ttk.Label(bar, text=NEW_PHONE_STATUS, style="StatusInfo.TLabel")
+
+        def button(text: str, style: str, command: Callable[[], None]) -> ttk.Button:
+            return ttk.Button(bar, text=text, style=style, command=command)
+
+        self.btn_save = button("💾 Zapisz zmiany", "Success.TButton", self.save_phone)
+        self.btn_delete = button("🗑️ Do kosza", "Danger.TButton", self.soft_delete_phone)
+        self.btn_warning = button("⚠️ Oznacz telefon", "Warning.TButton", self.toggle_warning)
+        self.btn_clear = button("Wyczyść", "Secondary.TButton", self.prepare_new_phone)
+        self.btn_restore = button("↩️ Przywróć telefon", "Success.TButton", self.restore_phone)
+        self.btn_hard_delete = button(
+            "❌ Usuń trwale z bazy", "Danger.TButton", self.hard_delete_phone
+        )
+        self._layout_form_buttons(in_trash=False)
+
+    def _layout_form_buttons(self, *, in_trash: bool) -> None:
+        all_buttons = (
+            self.btn_save,
+            self.btn_delete,
+            self.btn_warning,
+            self.btn_clear,
+            self.btn_restore,
+            self.btn_hard_delete,
+        )
+        for widget in (*all_buttons, self.lbl_editing_status):
+            widget.pack_forget()
+
+        if in_trash:
+            visible = (self.btn_restore, self.btn_hard_delete, self.btn_warning)
+        else:
+            visible = (self.btn_save, self.btn_delete, self.btn_warning, self.btn_clear)
+        for widget in visible:
+            widget.pack(side=tk.RIGHT, padx=4)
         self.lbl_editing_status.pack(side=tk.LEFT, padx=4)
 
-        # Przyciski akcji z prawej
-        self.btn_save = ttk.Button(btn_bar, text="💾 Zapisz zmiany", style="Success.TButton", command=self.save_phone)
-        self.btn_save.pack(side=tk.RIGHT, padx=4)
+    def _build_history(self, parent: ttk.Frame) -> None:
+        box = ttk.LabelFrame(
+            parent, text="  Dziennik zdarzeń i uwagi  ", style="Card.TLabelframe", padding=10
+        )
+        box.pack(fill=tk.BOTH, expand=True)
 
-        self.btn_delete = ttk.Button(btn_bar, text="🗑️ Do kosza", style="Danger.TButton", command=self.soft_delete_phone)
-        self.btn_delete.pack(side=tk.RIGHT, padx=4)
+        toolbar = ttk.Frame(box, style="Card.TFrame")
+        toolbar.pack(fill=tk.X, pady=(0, 6))
+        ttk.Label(
+            toolbar, text="Historia operacji i notatki do urządzenia", style="CardItalic.TLabel"
+        ).pack(side=tk.LEFT)
 
-        self.btn_warning = ttk.Button(btn_bar, text="⚠️ Oznacz telefon", style="Warning.TButton", command=self.toggle_warning)
-        self.btn_warning.pack(side=tk.RIGHT, padx=4)
-
-        self.btn_clear = ttk.Button(btn_bar, text="Wyczyść", style="Secondary.TButton", command=self.prepare_new_phone)
-        self.btn_clear.pack(side=tk.RIGHT, padx=4)
-
-        # Przyciski trybu kosza (początkowo ukryte)
-        self.btn_restore = ttk.Button(btn_bar, text="↩️ Przywróć telefon", style="Success.TButton", command=self.restore_phone)
-        self.btn_hard_delete = ttk.Button(btn_bar, text="❌ Usuń trwale z bazy", style="Danger.TButton", command=self.hard_delete_phone)
-
-        # -------------------------------------------------------------
-        # Sekcja B: Dziennik zdarzeń i uwagi
-        # -------------------------------------------------------------
-        history_box = ttk.LabelFrame(right_frame, text="  Dziennik zdarzeń i uwagi  ", style="Card.TLabelframe", padding=10)
-        history_box.pack(fill=tk.BOTH, expand=True)
-
-        self.h_top = ttk.Frame(history_box, style="Card.TFrame")
-        self.h_top.pack(fill=tk.X, pady=(0, 6))
-
-        ttk.Label(self.h_top, text="Historia operacji i notatki do urządzenia", style="Card.TLabel", font=("Segoe UI", 9, "italic")).pack(side=tk.LEFT)
-
-        self.btn_add_event = ttk.Button(self.h_top, text="+ Dodaj wpis", style="Primary.TButton", command=self.open_add_event_popup)
+        self.btn_add_event = ttk.Button(
+            toolbar, text="+ Dodaj wpis", style="Primary.TButton", command=self.open_add_event_popup
+        )
         self.btn_add_event.pack(side=tk.RIGHT, padx=(4, 0))
-
-        self.btn_add_note = ttk.Button(self.h_top, text="✏️ Edytuj uwagę", style="Secondary.TButton", command=self.open_add_note_popup)
-
-        # Tabela historii
-        self.history_tree = ttk.Treeview(
-            history_box,
-            columns=("data", "kategoria", "opis", "uwagi"),
-            show="headings",
-            selectmode="browse",
+        self.btn_add_note = ttk.Button(
+            toolbar, text="✏️ Edytuj uwagę", style="Secondary.TButton", command=self.open_add_note_popup
         )
 
-        self.history_col_titles = {
-            "data": "Data",
-            "kategoria": "Kategoria",
-            "opis": "Opis zdarzenia",
-            "uwagi": "Uwagi",
-        }
-        for col, title in self.history_col_titles.items():
-            self.history_tree.heading(col, text=title, command=lambda c=col: self.on_history_column_click(c))
-
-        self.history_tree.column("data", width=120, stretch=False)
-        self.history_tree.column("kategoria", width=125, stretch=False)
-        self.history_tree.column("opis", width=250)
-        self.history_tree.column("uwagi", width=220)
-
-        self.history_tree.tag_configure("even", background="#FFFFFF")
-        self.history_tree.tag_configure("odd", background="#F8FAFC")
-
+        self.history_tree = _create_tree(box, HISTORY_COLUMNS, self.on_history_column_click)
         self.history_tree.bind("<<TreeviewSelect>>", self.on_history_select)
-        self.history_tree.bind("<Double-1>", lambda event: self.open_add_note_popup())
+        self.history_tree.bind("<Double-1>", lambda _event: self.open_add_note_popup())
 
-        h_scroll = ttk.Scrollbar(history_box, orient=tk.VERTICAL, command=self.history_tree.yview)
-        self.history_tree.configure(yscrollcommand=h_scroll.set)
-        h_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.history_tree.pack(fill=tk.BOTH, expand=True)
+    # =======================================================================
+    # Lista telefonów
+    # =======================================================================
 
-    def show_db_tools_menu(self):
-        try:
-            x = self.btn_db_tools.winfo_rootx()
-            y = self.btn_db_tools.winfo_rooty() + self.btn_db_tools.winfo_height()
-            self.db_menu.post(x, y)
-        except Exception:
-            pass
+    def load_phone_list(self) -> None:
+        query = self.search_var.get().strip()
+        in_trash = self.show_deleted_var.get()
+        rows = db.search_phones(query, show_deleted=in_trash)
 
-    def clear_search(self):
+        self.tree.delete(*self.tree.get_children())
+        self._warning_items = set()
+        for phone_id, nr_tel, user, model, is_damaged in rows:
+            item = str(phone_id)
+            if is_damaged:
+                self._warning_items.add(item)
+            self.tree.insert("", tk.END, iid=item, values=(nr_tel, user or NO_USER, model))
+
+        _apply_sort(self.tree, PHONE_COLUMNS, self._phone_sort)
+        _apply_row_tags(self.tree, self._warning_items)
+        self._update_counter(len(rows), query, in_trash)
+
+    def _update_counter(self, found: int, query: str, in_trash: bool) -> None:
+        total = db.get_phones_count(show_deleted=in_trash)
+        prefix = "W koszu:" if in_trash else "Aktywnych:"
+        if query:
+            text = f"{prefix} znaleziono {found} z {total}"
+        else:
+            text = f"{prefix} {total} telefonów"
+        self.lbl_count.configure(text=text)
+
+    def on_phone_column_click(self, column: str) -> None:
+        self._phone_sort.toggle(column)
+        _apply_sort(self.tree, PHONE_COLUMNS, self._phone_sort)
+        _apply_row_tags(self.tree, self._warning_items)
+
+    def on_phone_select(self, _event: Optional[tk.Event] = None) -> None:
+        selection = self.tree.selection()
+        if not selection:
+            return
+        self.selected_phone_id = int(selection[0])
+        self.refresh_selected_details()
+
+    def _select_phone_in_list(self, phone_id: int) -> None:
+        item = str(phone_id)
+        if self.tree.exists(item):
+            self.tree.selection_set(item)
+            self.tree.see(item)
+
+    def _update_selection_colors(self) -> None:
+        selection = self.tree.selection()
+        if selection:
+            self._set_phone_selection_colors(warning=selection[0] in self._warning_items)
+
+    def clear_search(self) -> None:
         self.search_var.set("")
         self.search_entry.focus_set()
 
-    def on_history_select(self, _event=None):
-        selected = self.history_tree.selection()
-        if selected:
-            self.btn_add_note.pack(side=tk.RIGHT, padx=(0, 6))
+    def on_toggle_trash_view(self) -> None:
+        self.prepare_new_phone()
+        self._layout_form_buttons(in_trash=self.show_deleted_var.get())
+        self.load_phone_list()
+
+    # =======================================================================
+    # Formularz szczegółów
+    # =======================================================================
+
+    def _set_field(self, key: str, value: Any) -> None:
+        widget = self.entries[key]
+        text = "" if value is None else str(value)
+        if isinstance(widget, ttk.Combobox):
+            widget.set(text)
         else:
-            self.btn_add_note.pack_forget()
+            widget.delete(0, tk.END)
+            widget.insert(0, text)
 
-    def open_add_note_popup(self):
-        selected = self.history_tree.selection()
-        if not selected:
-            messagebox.showwarning("Wybierz wpis", "Wybierz wpis z historii, aby dodać lub edytować uwagę.")
-            return
+    def _fill_form(self, phone: dict[str, Any]) -> None:
+        for key in self.entries:
+            if key != "stan_baterii":
+                self._set_field(key, phone.get(key))
+        self._set_field("stan_baterii", phone.get("stan_baterii") or db.DEFAULT_BATTERY_STATE)
 
-        history_id = int(selected[0])
-        current_values = self.history_tree.item(selected[0], "values")
-        current_note = current_values[3] if len(current_values) > 3 else ""
+        self.var_protocol.set(bool(phone.get("czy_protokol")))
+        equipment = {
+            item.strip()
+            for item in (phone.get("wyposazenie") or "").split(",")
+            if item.strip()
+        }
+        for option, variable in self.equipment_vars.items():
+            variable.set(option in equipment)
 
-        AddNoteDialog(
-            parent=self,
-            history_id=history_id,
-            current_note=current_note,
-            on_save_callback=lambda: self._after_note_saved(history_id),
+    def _collect_form_data(self) -> dict[str, Any]:
+        data: dict[str, Any] = {key: widget.get().strip() for key, widget in self.entries.items()}
+        data["czy_protokol"] = int(self.var_protocol.get())
+        data["wyposazenie"] = EQUIPMENT_SEPARATOR.join(
+            option for option, variable in self.equipment_vars.items() if variable.get()
         )
+        return data
 
-    def _after_note_saved(self, history_id):
-        self.refresh_selected_details()
-        if self.history_tree.exists(str(history_id)):
-            self.history_tree.selection_set(str(history_id))
-            self.btn_add_note.pack(side=tk.RIGHT, padx=(0, 6))
+    def _update_warning_button(self, is_damaged: bool) -> None:
+        text = "✅ Odznacz telefon" if is_damaged else "⚠️ Oznacz telefon"
+        self.btn_warning.configure(text=text)
 
-    def on_phone_column_click(self, col):
-        if self.sort_column == col:
-            self.sort_reverse = not self.sort_reverse
-        else:
-            self.sort_column = col
-            self.sort_reverse = False
-
-        self.apply_phone_sorting()
-
-    def apply_phone_sorting(self):
-        for col, title in self.col_titles.items():
-            if col == self.sort_column:
-                arrow = "  ▼" if self.sort_reverse else "  ▲"
-                self.tree.heading(col, text=f"{title}{arrow}")
-            else:
-                self.tree.heading(col, text=title)
-
-        if not self.sort_column:
+    def refresh_selected_details(self) -> None:
+        if self.selected_phone_id is None:
             return
 
-        items = [(self.tree.set(k, self.sort_column), k) for k in self.tree.get_children("")]
-        items.sort(key=lambda t: t[0].lower(), reverse=self.sort_reverse)
-
-        for index, (_, k) in enumerate(items):
-            self.tree.move(k, "", index)
-
-        # Odświeżenie kolorów zebry po sortowaniu
-        for index, item_id in enumerate(self.tree.get_children("")):
-            tag = "even" if index % 2 == 0 else "odd"
-            self.tree.item(item_id, tags=(tag,))
-
-    def on_history_column_click(self, col):
-        if self.history_sort_column == col:
-            self.history_sort_reverse = not self.history_sort_reverse
-        else:
-            self.history_sort_column = col
-            self.history_sort_reverse = False
-
-        self.apply_history_sorting()
-
-    def apply_history_sorting(self):
-        for col, title in self.history_col_titles.items():
-            if col == self.history_sort_column:
-                arrow = "  ▼" if self.history_sort_reverse else "  ▲"
-                self.history_tree.heading(col, text=f"{title}{arrow}")
-            else:
-                self.history_tree.heading(col, text=title)
-
-        if not self.history_sort_column:
-            return
-
-        items = [(self.history_tree.set(k, self.history_sort_column), k) for k in self.history_tree.get_children("")]
-        items.sort(key=lambda t: t[0].lower(), reverse=self.history_sort_reverse)
-
-        for index, (_, k) in enumerate(items):
-            self.history_tree.move(k, "", index)
-
-        for index, item_id in enumerate(self.history_tree.get_children("")):
-            tag = "even" if index % 2 == 0 else "odd"
-            self.history_tree.item(item_id, tags=(tag,))
-
-    def load_phone_list(self):
-        query = self.search_var.get().strip()
-        is_trash = self.show_deleted_var.get()
-        rows = db.search_phones(query, show_deleted=is_trash)
-
-        self.tree.delete(*self.tree.get_children())
-        for idx, row in enumerate(rows):
-            p_id, p_nr, p_user, p_model, p_warning = row
-
-            if p_warning == 1:
-                tag = "warning"
-            else:
-                tag = "even" if idx % 2 == 0 else "odd"
-            self.tree.insert(
-                "",
-                tk.END,
-                iid=str(p_id),
-                values=(p_nr, p_user or "[BRAK]", p_model),
-                tags=(tag,),
-            )
-
-        total = db.get_phones_count(show_deleted=is_trash)
-        prefix = "W koszu:" if is_trash else "Aktywnych:"
-        if query:
-            self.lbl_count.config(text=f"{prefix} znaleziono {len(rows)} z {total}")
-        else:
-            self.lbl_count.config(text=f"{prefix} {total} telefonów")
-
-        if hasattr(self, "sort_column") and self.sort_column:
-            self.apply_phone_sorting()
-
-    def refresh_selected_details(self):
-        if not self.selected_phone_id:
-            return
-
-        self._update_selection_style()
+        self._update_selection_colors()
 
         row = db.get_phone_by_id(self.selected_phone_id)
-        if row:
-            is_warning = row[11] if len(row) > 11 else 0
-            if is_warning:
-                self.btn_warning.config(text="✅ Odznacz telefon")
-            else:
-                self.btn_warning.config(text="⚠️ Oznacz telefon")
-            
-            keys = [
-                "model", "nr_tel", "nr_sim", "imei",
-                "nr_seryjny", "rodzaj", "osoba_uzytkujaca", "osoba_odpowiedzialna",
-            ]
-            for i, key in enumerate(keys):
-                self.entries[key].delete(0, tk.END)
-                if row[i]:
-                    self.entries[key].insert(0, row[i])
-
-            self.var_protocol.set(bool(row[8]))
-
-            raw_equip = row[9] or ""
-            current_equip = [x.strip() for x in raw_equip.split(",") if x.strip()]
-            for item, var in self.wyposazenie_vars.items():
-                var.set(item in current_equip)
-
-            self.entries["stan_baterii"].set(row[10] if row[10] else "Brak informacji")
-            self.lbl_editing_status.config(text=f"Edytujesz ID #{self.selected_phone_id}: {row[0]} ({row[1]})")
-
-        history_rows = db.get_phone_history(self.selected_phone_id)
-        self.history_tree.delete(*self.history_tree.get_children())
-        self.btn_add_note.pack_forget()
-
-        for idx, (h_id, h_data, h_kat, h_opis, h_uwagi) in enumerate(history_rows):
-            tag = "even" if idx % 2 == 0 else "odd"
-            self.history_tree.insert(
-                "",
-                tk.END,
-                iid=str(h_id),
-                values=(h_data, h_kat, h_opis, h_uwagi),
-                tags=(tag,),
+        if row is not None:
+            phone = dict(zip(db.PHONE_FIELDS, row))
+            self._fill_form(phone)
+            self._update_warning_button(bool(phone["czy_uszkodzony"]))
+            self.lbl_editing_status.configure(
+                text=f"Edytujesz ID #{self.selected_phone_id}: {phone['model']} ({phone['nr_tel']})"
             )
 
-    def on_phone_select(self, _event):
-        selected = self.tree.selection()
-        if not selected:
-            return
-        self.selected_phone_id = int(selected[0])
-        self._update_selection_style()
-        self.refresh_selected_details()
+        self._load_history()
 
-    def prepare_new_phone(self):
+    def prepare_new_phone(self) -> None:
         self.selected_phone_id = None
         self.tree.selection_remove(*self.tree.selection())
-        self.style.map(
-            "Treeview",
-            background=[("selected", "#DBEAFE")],
-            foreground=[("selected", "#1E3A8A")],
-        )
-        for key, entry in self.entries.items():
-            if key == "stan_baterii":
-                entry.set("Brak informacji")
-            elif key == "rodzaj":
-                entry.set("")
-            else:
-                entry.delete(0, tk.END)
+        self._set_phone_selection_colors(warning=False)
 
+        for key in self.entries:
+            self._set_field(key, db.DEFAULT_BATTERY_STATE if key == "stan_baterii" else "")
         self.var_protocol.set(False)
-        for var in self.wyposazenie_vars.values():
-            var.set(False)
+        for variable in self.equipment_vars.values():
+            variable.set(False)
 
-        self.lbl_editing_status.config(text="Nowy telefon (niewprowadzony)")
+        self._update_warning_button(False)
+        self.lbl_editing_status.configure(text=NEW_PHONE_STATUS)
         self.history_tree.delete(*self.history_tree.get_children())
         self.btn_add_note.pack_forget()
-        self.entries["model"].focus()
+        self.entries["model"].focus_set()
 
-    def save_phone(self):
+    def _format_phone_entry(self, _event: Optional[tk.Event] = None) -> None:
+        current = self.entries["nr_tel"].get()
+        formatted = db.format_phone_number(current)
+        if formatted != current:
+            self._set_field("nr_tel", formatted)
+
+    # =======================================================================
+    # Akcje na telefonie
+    # =======================================================================
+
+    def _require_selected_phone(self, message: str) -> bool:
+        if self.selected_phone_id is None:
+            messagebox.showwarning("Wybierz telefon", message, parent=self)
+            return False
+        return True
+
+    def _after_phone_removed_from_view(self) -> None:
+        self.prepare_new_phone()
+        self.load_phone_list()
+
+    def save_phone(self) -> None:
         self._format_phone_entry()
-        data = {k: ent.get().strip() for k, ent in self.entries.items()}
-
-        data["czy_protokol"] = 1 if self.var_protocol.get() else 0
-        selected_equip = [item for item, var in self.wyposazenie_vars.items() if var.get()]
-        data["wyposazenie"] = ", ".join(selected_equip)
+        data = self._collect_form_data()
 
         if not data["model"] or not data["nr_tel"]:
-            messagebox.showwarning("Wymagane pola", "Pola 'Model tel' oraz 'Nr telefonu' są obowiązkowe.")
+            messagebox.showwarning(
+                "Wymagane pola", "Pola 'Model tel' oraz 'Nr telefonu' są obowiązkowe.", parent=self
+            )
             return
 
         if self.selected_phone_id is None:
             self.selected_phone_id = db.insert_phone(data)
-            messagebox.showinfo("Sukces", "Nowy telefon został pomyślnie zarejestrowany.")
+            messagebox.showinfo("Sukces", "Nowy telefon został pomyślnie zarejestrowany.", parent=self)
         else:
-            current_row = db.get_phone_by_id(self.selected_phone_id)
-            if current_row:
-                data["czy_uszkodzony"] = current_row[11]
+            current = db.get_phone_by_id(self.selected_phone_id)
+            if current is not None:
+                data["czy_uszkodzony"] = dict(zip(db.PHONE_FIELDS, current))["czy_uszkodzony"]
             db.update_phone(self.selected_phone_id, data)
-            messagebox.showinfo("Sukces", "Dane telefonu zostały zaktualizowane.")
+            messagebox.showinfo("Sukces", "Dane telefonu zostały zaktualizowane.", parent=self)
 
         self.load_phone_list()
-        self.tree.selection_set(str(self.selected_phone_id))
+        self._select_phone_in_list(self.selected_phone_id)
         self.refresh_selected_details()
 
-    def soft_delete_phone(self):
-        if not self.selected_phone_id:
-            messagebox.showwarning("Wybierz telefon", "Nie wybrano telefonu do przeniesienia do kosza.")
+    def soft_delete_phone(self) -> None:
+        if not self._require_selected_phone("Nie wybrano telefonu do przeniesienia do kosza."):
             return
-
-        if messagebox.askyesno("Potwierdzenie", "Czy na pewno chcesz przenieść ten telefon do kosza?"):
+        if messagebox.askyesno(
+            "Potwierdzenie", "Czy na pewno chcesz przenieść ten telefon do kosza?", parent=self
+        ):
             db.soft_delete_phone(self.selected_phone_id)
-            messagebox.showinfo("Kosz", "Telefon został przeniesiony do kosza.")
-            self.prepare_new_phone()
-            self.load_phone_list()
+            messagebox.showinfo("Kosz", "Telefon został przeniesiony do kosza.", parent=self)
+            self._after_phone_removed_from_view()
 
-    def restore_phone(self):
-        if not self.selected_phone_id:
-            messagebox.showwarning("Wybierz telefon", "Wybierz telefon z kosza, który chcesz przywrócić.")
+    def restore_phone(self) -> None:
+        if not self._require_selected_phone("Wybierz telefon z kosza, który chcesz przywrócić."):
             return
-
-        if messagebox.askyesno("Potwierdzenie", "Czy chcesz przywrócić ten telefon do aktywnych urządzeń?"):
+        if messagebox.askyesno(
+            "Potwierdzenie", "Czy chcesz przywrócić ten telefon do aktywnych urządzeń?", parent=self
+        ):
             db.restore_phone(self.selected_phone_id)
-            messagebox.showinfo("Sukces", "Telefon został przywrócony.")
-            self.prepare_new_phone()
-            self.load_phone_list()
+            messagebox.showinfo("Sukces", "Telefon został przywrócony.", parent=self)
+            self._after_phone_removed_from_view()
 
-    def hard_delete_phone(self):
-        if not self.selected_phone_id:
-            messagebox.showwarning("Wybierz telefon", "Wybierz telefon do trwałego usunięcia.")
+    def hard_delete_phone(self) -> None:
+        if not self._require_selected_phone("Wybierz telefon do trwałego usunięcia."):
             return
-
-        msg = (
+        message = (
             "UWAGA: Ta operacja jest NIEODWRACALNA!\n"
             "Telefon oraz cała jego historia zdarzeń zostaną trwale wykasowane z bazy.\n\n"
             "Czy na pewno chcesz kontynuować?"
         )
-        if messagebox.askyesno("Ostrzeżenie", msg, icon=messagebox.WARNING):
+        if messagebox.askyesno("Ostrzeżenie", message, icon=messagebox.WARNING, parent=self):
             db.hard_delete_phone(self.selected_phone_id)
-            messagebox.showinfo("Usunięto", "Telefon został trwale wykasowany z bazy.")
-            self.prepare_new_phone()
-            self.load_phone_list()
+            messagebox.showinfo("Usunięto", "Telefon został trwale wykasowany z bazy.", parent=self)
+            self._after_phone_removed_from_view()
 
-    def open_add_event_popup(self):
-        if not self.selected_phone_id:
-            messagebox.showwarning("Wybierz telefon", "Wybierz lub zapisz telefon przed dodaniem zdarzenia.")
+    def toggle_warning(self) -> None:
+        if not self._require_selected_phone("Wybierz telefon z listy, aby go oznaczyć."):
             return
 
+        row = db.get_phone_by_id(self.selected_phone_id)
+        is_damaged = bool(row and dict(zip(db.PHONE_FIELDS, row))["czy_uszkodzony"])
+        if is_damaged and not messagebox.askyesno(
+            "Potwierdzenie odznaczenia", "Czy na pewno chcesz odznaczyć ten telefon?", parent=self
+        ):
+            return
+
+        new_state = db.toggle_phone_warning(self.selected_phone_id)
+        self._update_warning_button(bool(new_state))
+
+        self.load_phone_list()
+        self._select_phone_in_list(self.selected_phone_id)
+        self.refresh_selected_details()
+
+    # =======================================================================
+    # Historia zdarzeń
+    # =======================================================================
+
+    def _load_history(self) -> None:
+        self.history_tree.delete(*self.history_tree.get_children())
+        self.btn_add_note.pack_forget()
+
+        for history_id, date, category, description, note in db.get_phone_history(
+            self.selected_phone_id
+        ):
+            self.history_tree.insert(
+                "", tk.END, iid=str(history_id), values=(date, category, description, note)
+            )
+
+        _apply_sort(self.history_tree, HISTORY_COLUMNS, self._history_sort)
+        _apply_row_tags(self.history_tree)
+
+    def on_history_column_click(self, column: str) -> None:
+        self._history_sort.toggle(column)
+        _apply_sort(self.history_tree, HISTORY_COLUMNS, self._history_sort)
+        _apply_row_tags(self.history_tree)
+
+    def on_history_select(self, _event: Optional[tk.Event] = None) -> None:
+        if self.history_tree.selection():
+            self.btn_add_note.pack(side=tk.RIGHT, padx=(0, 6))
+        else:
+            self.btn_add_note.pack_forget()
+
+    def open_add_event_popup(self) -> None:
+        if not self._require_selected_phone("Wybierz lub zapisz telefon przed dodaniem zdarzenia."):
+            return
         AddEventDialog(self, self.selected_phone_id, on_save_callback=self.refresh_selected_details)
 
-    def open_excel_import(self):
-        file_path = filedialog.askopenfilename(
-            title="Wybierz plik Excel do importu",
-            filetypes=[("Excel files", "*.xlsx *.xls *.xlsm"), ("All files", "*.*")],
-        )
-        if not file_path:
-            return
-
-        ExcelImportDialog(self, file_path, on_success_callback=self.load_phone_list)
-
-    def _format_phone_entry(self, _event=None):
-        current = self.entries["nr_tel"].get()
-        formatted = db.format_phone_number(current)
-        if current != formatted:
-            self.entries["nr_tel"].delete(0, tk.END)
-            self.entries["nr_tel"].insert(0, formatted)
-
-    def export_to_excel(self):
-        visible_ids = [int(item_id) for item_id in self.tree.get_children()]
-
-        if not visible_ids:
+    def open_add_note_popup(self) -> None:
+        selection = self.history_tree.selection()
+        if not selection:
             messagebox.showwarning(
-                "Brak danych",
-                "Lista jest pusta. Brak wyników do wyeksportowania.",
+                "Wybierz wpis",
+                "Wybierz wpis z historii, aby dodać lub edytować uwagę.",
+                parent=self,
             )
             return
 
-        is_trash = self.show_deleted_var.get()
-        prefix = "kosz" if is_trash else "telefony"
-        default_filename = f"{prefix}_eksport_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+        item = selection[0]
+        values = self.history_tree.item(item, "values")
+        current_note = values[3] if len(values) > 3 else ""
+        AddNoteDialog(
+            parent=self,
+            history_id=int(item),
+            current_note=current_note,
+            on_save_callback=lambda: self._after_note_saved(item),
+        )
 
+    def _after_note_saved(self, item: str) -> None:
+        self.refresh_selected_details()
+        if self.history_tree.exists(item):
+            self.history_tree.selection_set(item)
+            self.btn_add_note.pack(side=tk.RIGHT, padx=(0, 6))
+
+    # =======================================================================
+    # Okna dialogowe i operacje na plikach
+    # =======================================================================
+
+    def show_db_tools_menu(self) -> None:
+        x = self.btn_db_tools.winfo_rootx()
+        y = self.btn_db_tools.winfo_rooty() + self.btn_db_tools.winfo_height()
+        try:
+            self.db_menu.tk_popup(x, y)
+        finally:
+            self.db_menu.grab_release()
+
+    def open_employer_dialog(self) -> None:
+        EmployerDialog(self)
+
+    def open_protocol_dialog(self) -> None:
+        ProtocolDialog(self, initial_phone_id=self.selected_phone_id)
+
+    def open_excel_import(self) -> None:
+        file_path = filedialog.askopenfilename(
+            parent=self,
+            title="Wybierz plik Excel do importu",
+            filetypes=[("Pliki Excel", "*.xlsx *.xlsm"), ("Wszystkie pliki", "*.*")],
+        )
+        if file_path:
+            ExcelImportDialog(self, file_path, on_success_callback=self.load_phone_list)
+
+    def export_to_excel(self) -> None:
+        visible_ids = [int(item) for item in self.tree.get_children()]
+        if not visible_ids:
+            messagebox.showwarning(
+                "Brak danych", "Lista jest pusta. Brak wyników do wyeksportowania.", parent=self
+            )
+            return
+
+        prefix = "kosz" if self.show_deleted_var.get() else "telefony"
         file_path = filedialog.asksaveasfilename(
+            parent=self,
             title="Wybierz miejsce zapisu pliku Excel",
             defaultextension=".xlsx",
-            initialfile=default_filename,
+            initialfile=f"{prefix}_eksport_{_timestamp()}.xlsx",
             filetypes=[("Pliki Excel", "*.xlsx"), ("Wszystkie pliki", "*.*")],
         )
         if not file_path:
             return
 
         try:
-            exported_count = db.export_to_excel(file_path, phone_ids=visible_ids)
-            messagebox.showinfo(
-                "Eksport zakończony",
-                f"Pomyślnie wyeksportowano {exported_count} urządzeń wraz z historią do pliku:\n{file_path}",
-            )
+            exported = db.export_to_excel(file_path, phone_ids=visible_ids)
         except PermissionError:
             messagebox.showerror(
                 "Błąd zapisu",
-                "Nie można zapisać pliku. Upewnij się, że plik nie jest obecnie otwarty w programie Excel.",
+                "Nie można zapisać pliku. Upewnij się, że plik nie jest obecnie otwarty "
+                "w programie Excel.",
+                parent=self,
             )
-        except Exception as e:
-            messagebox.showerror("Błąd eksportu", f"Wystąpił nieoczekiwany błąd:\n{e}")
-
-    def on_toggle_trash_view(self):
-        self.prepare_new_phone()
-        is_trash = self.show_deleted_var.get()
-
-        if is_trash:
-            self.btn_save.pack_forget()
-            self.btn_delete.pack_forget()
-            self.btn_clear.pack_forget()
-            self.btn_restore.pack(side=tk.RIGHT, padx=4)
-            self.btn_hard_delete.pack(side=tk.RIGHT, padx=4)
+        except Exception as error:
+            messagebox.showerror("Błąd eksportu", f"Wystąpił nieoczekiwany błąd:\n{error}", parent=self)
         else:
-            self.btn_restore.pack_forget()
-            self.btn_hard_delete.pack_forget()
-            self.btn_save.pack(side=tk.RIGHT, padx=4)
-            self.btn_delete.pack(side=tk.RIGHT, padx=4)
-            self.btn_clear.pack(side=tk.RIGHT, padx=4)
+            messagebox.showinfo(
+                "Eksport zakończony",
+                f"Pomyślnie wyeksportowano {exported} urządzeń wraz z historią do pliku:\n{file_path}",
+                parent=self,
+            )
 
-        self.load_phone_list()
-
-    def open_employer_dialog(self):
-        EmployerDialog(self)
-
-    def open_protocol_dialog(self):
-        ProtocolDialog(self, initial_phone_id=self.selected_phone_id)
-
-    def create_db_backup(self):
-        default_filename = f"backup_telefony_{datetime.now().strftime('%Y%m%d_%H%M')}.db"
-
+    def create_db_backup(self) -> None:
         file_path = filedialog.asksaveasfilename(
             parent=self,
             title="Wybierz miejsce zapisu kopii zapasowej",
             defaultextension=".db",
-            initialfile=default_filename,
+            initialfile=f"backup_telefony_{_timestamp()}.db",
             filetypes=[("Baza danych SQLite (*.db)", "*.db"), ("Wszystkie pliki", "*.*")],
         )
         if not file_path:
@@ -853,30 +947,29 @@ class APP(tk.Tk):
 
         try:
             db.backup_database(file_path)
-            messagebox.showinfo(
-                "Kopia zapasowa",
-                f"Kopia zapasowa bazy danych została pomyślnie utworzona:\n{file_path}",
-                parent=self,
-            )
         except PermissionError:
             messagebox.showerror(
                 "Błąd zapisu",
                 "Brak uprawnień do zapisu we wskazanym folderze lub plik jest zablokowany.",
                 parent=self,
             )
-        except Exception as e:
+        except Exception as error:
             messagebox.showerror(
-                "Błąd",
-                f"Nie udało się utworzyć kopii zapasowej:\n{e}",
+                "Błąd", f"Nie udało się utworzyć kopii zapasowej:\n{error}", parent=self
+            )
+        else:
+            messagebox.showinfo(
+                "Kopia zapasowa",
+                f"Kopia zapasowa bazy danych została pomyślnie utworzona:\n{file_path}",
                 parent=self,
             )
 
-    def restore_db_backup(self):
-        msg = (
-            "UWAGA: Ta operacja ZASTĄPI wszystkie obecne dane w programie danymi z wybranego pliku kopii!\n\n"
-            "Czy na pewno chcesz kontynuować i wybrać plik kopii zapasowej?"
+    def restore_db_backup(self) -> None:
+        message = (
+            "UWAGA: Ta operacja ZASTĄPI wszystkie obecne dane w programie danymi z wybranego "
+            "pliku kopii!\n\nCzy na pewno chcesz kontynuować i wybrać plik kopii zapasowej?"
         )
-        if not messagebox.askyesno("Ostrzeżenie", msg, icon=messagebox.WARNING, parent=self):
+        if not messagebox.askyesno("Ostrzeżenie", message, icon=messagebox.WARNING, parent=self):
             return
 
         file_path = filedialog.askopenfilename(
@@ -889,74 +982,27 @@ class APP(tk.Tk):
 
         try:
             db.restore_database(file_path)
-            self.prepare_new_phone()
-            self.load_phone_list()
-
-            messagebox.showinfo(
-                "Sukces",
-                "Kopia zapasowa została pomyślnie wgrana do bazy danych aplikacji!\nLista urządzeń została zaktualizowana.",
-                parent=self,
-            )
         except sqlite3.DatabaseError:
             messagebox.showerror(
                 "Błąd pliku",
                 "Wybrany plik jest uszkodzony lub nie jest poprawną bazą danych SQLite.",
                 parent=self,
             )
-        except Exception as e:
+            return
+        except Exception as error:  
             messagebox.showerror(
                 "Błąd",
-                f"Wystąpił nieoczekiwany błąd podczas przywracania bazy:\n{e}",
+                f"Wystąpił nieoczekiwany błąd podczas przywracania bazy:\n{error}",
                 parent=self,
             )
-
-    def toggle_warning (self):
-        if not self.selected_phone_id:
-            messagebox.showwarning("Wybierz telefon", "Wybierz telefon z listy, aby go oznaczyć.")
             return
 
-        # Przełączenie w bazie danych
-        row = db.get_phone_by_id(self.selected_phone_id)
-        is_warning = row[11] if row and len(row) > 11 else 0
+        self._after_phone_removed_from_view()
+        messagebox.showinfo(
+            "Sukces",
+            "Kopia zapasowa została pomyślnie wgrana do bazy danych aplikacji!\n"
+            "Lista urządzeń została zaktualizowana.",
+            parent=self,
+        )
 
-        if is_warning == 1:
-            potwierdzenie = messagebox.askyesno(
-                "Potwierdzenie odznaczenia",
-                "Czy na pewno chcesz odznaczyć ten telefon?",
-                parent=self,
-            )
-            if not potwierdzenie:
-                return
-            
-        new_state = db.toggle_phone_warning(self.selected_phone_id)
-        
-        # Aktualizacja tekstu przycisku w zależności od stanu
-        if new_state == 1:
-            self.btn_warning.config(text="✅ Odznacz telefon")
-        else:
-            self.btn_warning.config(text="⚠️ Oznacz telefon")
-
-        # Odświeżenie listy, aby kolor zmienił się w lewym panelu
-        self.load_phone_list()
-        self.tree.selection_set(str(self.selected_phone_id))
-        self.refresh_selected_details()
-
-    def _update_selection_style(self):
-        selected = self.tree.selection()
-        if not selected:
-            return
-
-        tags = self.tree.item(selected[0], "tags")
-        if "warning" in tags:
-            self.style.map(
-                "Treeview",
-                background=[("selected", "#FCA5A5")],  # Jasnoczerwone tło
-                foreground=[("selected", "#7F1D1D")],  # Ciemnoczerwony tekst
-            )
-        else:
-            # Standardowy błękitny kolor zaznaczenia
-            self.style.map(
-                "Treeview",
-                background=[("selected", "#DBEAFE")],
-                foreground=[("selected", "#1E3A8A")],
-            )
+APP = PhoneDatabaseApp
