@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sqlite3
 import tkinter as tk
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -15,6 +14,14 @@ from dialogs import (
     EmployerDialog,
     ExcelImportDialog,
     ProtocolDialog,
+)
+from login_dialogs import (
+    AddUserDialog,
+    ChangePasswordDialog,
+    RemoveUserDialog,
+    Session,
+    authenticate,
+    regenerate_recovery_code,
 )
 
 # ---------------------------------------------------------------------------
@@ -188,9 +195,17 @@ def _apply_row_tags(tree: ttk.Treeview, warning_items: Iterable[str] = ()) -> No
 class PhoneDatabaseApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
+        self.withdraw()
         self.title(APP_TITLE)
         self.geometry(WINDOW_SIZE)
         self.minsize(*WINDOW_MIN_SIZE)
+        self._setup_styles()
+
+        session = authenticate(self)
+        if session is None:
+            self.destroy()
+            return
+        self.session: Session = session
 
         self.selected_phone_id: Optional[int] = None
         self.show_deleted_var = tk.BooleanVar(value=False)
@@ -204,10 +219,10 @@ class PhoneDatabaseApp(tk.Tk):
         self._warning_items: set[str] = set()
 
         db.init_db()
-        self._setup_styles()
         self._build_ui()
         self.search_var.trace_add("write", lambda *_args: self.load_phone_list())
         self.load_phone_list()
+        self.deiconify()
 
     # =======================================================================
     # Style
@@ -398,6 +413,14 @@ class PhoneDatabaseApp(tk.Tk):
             label="💾 Utwórz kopię zapasową bazy (.db)", command=self.create_db_backup
         )
         self.db_menu.add_command(label="🔄 Przywróć bazę z pliku (.db)", command=self.restore_db_backup)
+        self.db_menu.add_separator()
+        self.db_menu.add_command(label="🔑 Zmień hasło", command=self.open_change_password)
+        self.db_menu.add_command(label="👥 Dodaj użytkownika", command=self.open_add_user)
+        self.db_menu.add_command(label="🚫 Usuń użytkownika", command=self.open_remove_user)
+        self.db_menu.add_command(
+            label="🆘 Wygeneruj nowy kod awaryjny",
+            command=lambda: regenerate_recovery_code(self, self.session),
+        )
 
         self.btn_db_tools = ttk.Button(
             actions, text="⚙️ Opcje bazy ▾", style="Secondary.TButton", command=self.show_db_tools_menu
@@ -426,6 +449,9 @@ class PhoneDatabaseApp(tk.Tk):
 
         self.lbl_count = ttk.Label(search_row, style="Badge.TLabel")
         self.lbl_count.pack(side=tk.RIGHT)
+        ttk.Label(
+            search_row, text=f"👤 {self.session.username}", style="BrandSub.TLabel"
+        ).pack(side=tk.RIGHT, padx=(0, 12))
 
     def _build_phone_list(self, parent: ttk.Frame) -> None:
         card = ttk.LabelFrame(parent, text="  Lista urządzeń  ", style="Card.TLabelframe", padding=6)
@@ -885,6 +911,22 @@ class PhoneDatabaseApp(tk.Tk):
     def open_employer_dialog(self) -> None:
         EmployerDialog(self)
 
+    def open_change_password(self) -> None:
+        ChangePasswordDialog(self, self.session)
+
+    def open_add_user(self) -> None:
+        AddUserDialog(self, self.session)
+
+    def open_remove_user(self) -> None:
+        others = [
+            name for name in self.session.keystore.usernames() if name != self.session.username
+        ]
+        if not others:
+            messagebox.showinfo(
+                "Brak użytkowników", "Nie ma innych użytkowników do usunięcia.", parent=self
+            )
+            return
+
     def open_protocol_dialog(self) -> None:
         ProtocolDialog(self, initial_phone_id=self.selected_phone_id)
 
@@ -946,7 +988,7 @@ class PhoneDatabaseApp(tk.Tk):
             return
 
         try:
-            db.backup_database(file_path)
+            keys_copy = db.backup_database(file_path)
         except PermissionError:
             messagebox.showerror(
                 "Błąd zapisu",
@@ -960,7 +1002,10 @@ class PhoneDatabaseApp(tk.Tk):
         else:
             messagebox.showinfo(
                 "Kopia zapasowa",
-                f"Kopia zapasowa bazy danych została pomyślnie utworzona:\n{file_path}",
+                f"Kopia zapasowa bazy danych została pomyślnie utworzona:\n{file_path}\n\n"
+                f"Obok zapisano kopię pliku kluczy:\n{keys_copy}\n\n"
+                "Kopia jest zaszyfrowana. Przechowuj oba pliki razem - bez pliku kluczy "
+                "kopii nie da się otworzyć na innym komputerze.",
                 parent=self,
             )
 
@@ -982,13 +1027,13 @@ class PhoneDatabaseApp(tk.Tk):
 
         try:
             db.restore_database(file_path)
-        except sqlite3.DatabaseError:
+        except db.DatabaseError:
             messagebox.showerror(
                 "Błąd pliku",
-                "Wybrany plik jest uszkodzony lub nie jest poprawną bazą danych SQLite.",
+                "Wybrany plik jest uszkodzony, nie jest bazą danych programu albo został "
+                "zaszyfrowany innym kluczem (kopia z innej instalacji programu).",
                 parent=self,
             )
-            return
         except Exception as error:  
             messagebox.showerror(
                 "Błąd",

@@ -1,19 +1,25 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
-import sqlite3
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+import shutil
+import time
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import openpyxl
-import sqlcipher3
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
+from sqlcipher3 import dbapi2 as sqlite3
+
+DatabaseError = sqlite3.DatabaseError
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Konfiguracja
@@ -22,6 +28,10 @@ from openpyxl.worksheet.worksheet import Worksheet
 APP_DIR_NAME = "BazaTelefonow"
 FALLBACK_APP_DIR_NAME = ".baza_telefonow"
 DB_FILENAME = "telefony.db"
+KEYSTORE_FILENAME = "keys.json"
+BACKUP_KEYS_SUFFIX = ".keys.json"
+
+_PLAIN_SQLITE_HEADER = b"SQLite format 3\x00"
 
 DATETIME_FORMAT = "%Y-%m-%d %H:%M"
 DEFAULT_BATTERY_STATE = "Brak informacji"
@@ -43,7 +53,6 @@ PHONE_FIELDS: tuple[str, ...] = (
 )
 
 FLAG_FIELDS = frozenset({"czy_protokol", "czy_uszkodzony"})
-
 
 OPTIONAL_FIELD_DEFAULTS: dict[str, Any] = {
     "czy_protokol": 0,
@@ -117,7 +126,6 @@ _SCHEMA: tuple[str, ...] = (
     """,
 )
 
-
 _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("telefony", "czy_usuniety", "INTEGER DEFAULT 0"),
     ("telefony", "czy_protokol", "INTEGER DEFAULT 0"),
@@ -179,7 +187,6 @@ _PHONES_SHEET_HEADERS: tuple[str, ...] = (
     "Stan baterii",
     "Czy uszkodzony",
 )
-
 _PHONES_CENTERED_COLUMNS = frozenset({1, 3, 4, 5, 10, 13})
 
 _HISTORY_SHEET_HEADERS: tuple[str, ...] = (
@@ -190,7 +197,6 @@ _HISTORY_SHEET_HEADERS: tuple[str, ...] = (
     "Opis zdarzenia",
     "Uwagi",
 )
-
 _HISTORY_CENTERED_COLUMNS = frozenset({1, 3, 4})
 
 
@@ -207,10 +213,123 @@ def get_db_path() -> str:
 
 
 DB_NAME = get_db_path()
+KEYSTORE_PATH = str(Path(DB_NAME).with_name(KEYSTORE_FILENAME))
+
+
+# ---------------------------------------------------------------------------
+# Szyfrowanie (SQLCipher)
+# ---------------------------------------------------------------------------
+
+# Klucz główny bazy - ustawiany po zalogowaniu (``unlock``), trzymany tylko w pamięci.
+_db_key: bytes | None = None
+
+
+def _apply_key(conn: sqlite3.Connection, key: bytes) -> None:
+    conn.execute(f"PRAGMA key = \"x'{key.hex()}'\"")
+
+
+def _connect_encrypted(path: str | Path, key: bytes) -> sqlite3.Connection:
+    conn = sqlite3.connect(str(path))
+    _apply_key(conn, key)
+    return conn
+
+
+def _verify_readable(conn: sqlite3.Connection) -> None:
+    conn.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()
+
+
+def unlock(key: bytes) -> None:
+    global _db_key
+    with closing(_connect_encrypted(DB_NAME, key)) as conn:
+        if not conn.execute("PRAGMA cipher_version").fetchone():
+            raise RuntimeError("Brak obsługi SQLCipher - baza nie byłaby szyfrowana.")
+        _verify_readable(conn)
+    _db_key = key
+
+
+def lock() -> None:
+    global _db_key
+    _db_key = None
+
+
+def is_unlocked() -> bool:
+    return _db_key is not None
+
+
+def database_exists(path: str | Path = DB_NAME) -> bool:
+    file = Path(path)
+    return file.exists() and file.stat().st_size > 0
+
+
+def is_plain_database(path: str | Path = DB_NAME) -> bool:
+    if not database_exists(path):
+        return False
+    with open(path, "rb") as file:
+        return file.read(len(_PLAIN_SQLITE_HEADER)) == _PLAIN_SQLITE_HEADER
+
+
+_LOCK_RETRY_DELAYS = (0.1, 0.25, 0.5, 1.0, 2.0)
+
+
+def _retry_if_locked(operation: Callable[..., Any], *args: Any) -> Any:
+    for delay in _LOCK_RETRY_DELAYS:
+        try:
+            return operation(*args)
+        except PermissionError:
+            time.sleep(delay)
+    return operation(*args)  
+
+
+def _remove_quietly(path: str | Path) -> None:
+    try:
+        _retry_if_locked(Path(path).unlink, True)
+    except OSError:
+        logger.warning("Nie udało się usunąć pliku tymczasowego %s", path, exc_info=True)
+
+
+def _table_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    tables = [
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        )
+    ]
+    return {table: conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0] for table in tables}
+
+
+def _export_plain_to_encrypted(plain_path: str | Path, encrypted_path: str | Path, key: bytes) -> None:
+    _retry_if_locked(Path(encrypted_path).unlink, True)  
+    with closing(sqlite3.connect(str(plain_path))) as plain:
+        plain.execute(
+            f"ATTACH DATABASE ? AS encrypted KEY \"x'{key.hex()}'\"", (str(encrypted_path),)
+        )
+        plain.execute("SELECT sqlcipher_export('encrypted')")
+        plain.execute("DETACH DATABASE encrypted")
+        expected = _table_counts(plain)
+
+    with closing(_connect_encrypted(encrypted_path, key)) as encrypted:
+        if _table_counts(encrypted) != expected:
+            raise DatabaseError("Weryfikacja zaszyfrowanej kopii nie powiodła się.")
+
+
+def encrypt_existing_database(
+    key: bytes, before_replace: Callable[[], None] | None = None
+) -> None:
+    temporary = Path(DB_NAME).with_suffix(".encrypting.tmp")
+    try:
+        _export_plain_to_encrypted(DB_NAME, temporary, key)
+        if before_replace is not None:
+            before_replace()
+        _retry_if_locked(os.replace, temporary, DB_NAME)
+    except BaseException:
+        _remove_quietly(temporary)
+        raise
 
 
 def get_connection() -> sqlite3.Connection:
-    return sqlite3.connect(DB_NAME)
+    if _db_key is None:
+        raise RuntimeError("Baza jest zablokowana - najpierw się zaloguj.")
+    return _connect_encrypted(DB_NAME, _db_key)
 
 
 @contextmanager
@@ -225,7 +344,7 @@ def _cursor() -> Iterator[sqlite3.Cursor]:
 
 
 def _now() -> str:
-    return datetime.now().strftime(DATETIME_FORMAT)  
+    return datetime.now().strftime(DATETIME_FORMAT)  # noqa: DTZ005
 
 
 def _to_flag(value: Any) -> int:
@@ -390,7 +509,6 @@ def get_phones_count(show_deleted: bool = False) -> int:
 
 
 def insert_phone(data: Mapping[str, Any]) -> int:
-    """Dodaje nowy telefon wraz z wpisem w historii i zwraca jego identyfikator."""
     record = {**data, "nr_tel": format_phone_number(data.get("nr_tel", ""))}
 
     with _cursor() as cursor:
@@ -693,12 +811,41 @@ def save_employer(nazwa_firmy: str, adres: str, nip: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def backup_database(dest_path: str | Path) -> None:
-    with closing(get_connection()) as source, closing(sqlite3.connect(dest_path)) as target:
+def backup_keys_path(backup_path: str | Path) -> Path:
+    path = Path(backup_path)
+    return path.with_name(path.stem + BACKUP_KEYS_SUFFIX)
+
+
+def backup_database(dest_path: str | Path) -> Path:
+    Path(dest_path).unlink(missing_ok=True)
+    with closing(get_connection()) as source, closing(
+        _connect_encrypted(dest_path, _db_key)
+    ) as target:
         source.backup(target)
+
+    keys_copy = backup_keys_path(dest_path)
+    shutil.copyfile(KEYSTORE_PATH, keys_copy)
+    return keys_copy
 
 
 def restore_database(backup_path: str | Path) -> None:
-    with closing(sqlite3.connect(backup_path)) as source, closing(get_connection()) as target:
-        source.backup(target)
+    if _db_key is None:
+        raise RuntimeError("Baza jest zablokowana - najpierw się zaloguj.")
+
+    temporary: Path | None = None
+    source_path: str | Path = backup_path
+    if is_plain_database(backup_path):
+        temporary = Path(DB_NAME).with_suffix(".restore.tmp")
+        _export_plain_to_encrypted(backup_path, temporary, _db_key)
+        source_path = temporary
+
+    try:
+        with closing(_connect_encrypted(source_path, _db_key)) as source:
+            _verify_readable(source)
+            with closing(get_connection()) as target:
+                source.backup(target)
+    finally:
+        if temporary is not None:
+            _remove_quietly(temporary)
+
     init_db()

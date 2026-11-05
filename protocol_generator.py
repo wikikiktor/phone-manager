@@ -75,8 +75,6 @@ class BlankWidths:
     condition: int = 400  
     signature: int = 60  
 
-# Zmień wartości poniżej, aby ustawić liczbę kropek w danym formacie,
-# np. BlankWidths(condition=300, signature=50).
 DOCX_BLANKS = BlankWidths(condition=396)
 PDF_BLANKS = BlankWidths(condition=426)
 
