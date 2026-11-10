@@ -19,7 +19,12 @@ _LOCK_RETRY_DELAYS = (0.1, 0.25, 0.5, 1.0, 2.0)
 RECOVERY_USER = "__awaryjny__"
 MIN_PASSWORD_LENGTH = 3
 
-_RECOVERY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # bez mylących znaków 0/O, 1/I
+ROLE_ADMIN = "admin"
+ROLE_USER = "user"
+_ROLE_RECOVERY = "recovery"
+ROLE_LABELS = {ROLE_ADMIN: "Administrator", ROLE_USER: "Użytkownik"}
+
+_RECOVERY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  
 _RECOVERY_GROUPS = 6
 _RECOVERY_GROUP_LENGTH = 4
 
@@ -34,6 +39,9 @@ def _b64encode(data: bytes) -> str:
 
 def _derive_key(secret: str, salt: bytes) -> bytes:
     return hashlib.scrypt(secret.encode("utf-8"), salt=salt, **_SCRYPT_PARAMS)
+
+def _aad(name: str, role: str | None) -> bytes:
+    return name.encode() if role is None else f"{name}\0{role}".encode()
 
 
 def normalize_username(username: str) -> str:
@@ -90,46 +98,82 @@ class KeyStore:
     def usernames(self) -> list[str]:
         return sorted(name for name in self._load()["users"] if name != RECOVERY_USER)
 
+    def users_with_roles(self) -> list[tuple[str, str]]:
+        users = self._load()["users"]
+        return [
+            (name, users[name].get("role") or ROLE_ADMIN)
+            for name in sorted(users)
+            if name != RECOVERY_USER
+        ]
+
     def has_user(self, username: str) -> bool:
         return normalize_username(username) in self._load()["users"]
 
-    # --- Operacje ----------------------------------------------------------
-
-    def add_user(self, master_key: bytes, username: str, password: str) -> None:
-        name = normalize_username(username)
+    # --- Wpisy (wewnętrzne) ------------------------------------------------
+    
+    def _write_entry(self, master_key: bytes, name: str, secret: str, role: str) -> None:
         salt, nonce = os.urandom(16), os.urandom(12)
-        wrapped = AESGCM(_derive_key(password, salt)).encrypt(nonce, master_key, name.encode())
+        wrapped = AESGCM(_derive_key(secret, salt)).encrypt(nonce, master_key, _aad(name, role))
 
         data = self._load()
         data["users"][name] = {
+            "role": role,
             "salt": _b64encode(salt),
             "nonce": _b64encode(nonce),
-            "key": _b64encode(wrapped),
+            "key": _b64encode(wrapped)
         }
         self._save(data)
 
-    def unlock(self, username: str, password: str) -> bytes:
-        name = normalize_username(username)
+    def _open_entry(self, name: str, secret: str) -> tuple[bytes, str]:
         entry = self._load()["users"].get(name)
         if entry is None:
-            _derive_key(password, b"\0" * 16)
+            _derive_key(secret, b"\0" * 16)
             raise InvalidCredentials
 
+        role = entry.get("role")
         salt, nonce, wrapped = (base64.b64decode(entry[field]) for field in ("salt", "nonce", "key"))
         try:
-            return AESGCM(_derive_key(password, salt)).decrypt(nonce, wrapped, name.encode())
+            master_key = AESGCM(_derive_key(secret, salt)).decrypt(nonce, wrapped, _aad(name, role))
         except InvalidTag:
             raise InvalidCredentials from None
 
+        if role is None:
+            role = _ROLE_RECOVERY if name == RECOVERY_USER else ROLE_ADMIN
+            self._write_entry(master_key, name, secret, role)
+        return master_key, role
+
+    # --- Operacje ----------------------------------------------------------
+
+    def add_user(self, master_key: bytes, username: str, password: str, role: str = ROLE_USER) -> None:
+        if role not in ROLE_LABELS:
+            raise ValueError(f"Nieznana rola: {role}")
+        self._write_entry(master_key, normalize_username(username), password, role)
+
+    def unlock_with_role(self, username: str, password: str) -> tuple[bytes, str]:
+        name = normalize_username(username)
+        if name == RECOVERY_USER:
+            raise InvalidCredentials
+        return self._open_entry(name, password)
+
+    def unlock(self, username: str, password: str) -> bytes:
+        return self.unlock_with_role(username, password)[0]
+
+    def set_password(self, master_key: bytes, username: str, password: str) -> None:
+        name = normalize_username(username)
+        entry = self._load()["users"].get(name)
+        if entry is None or name == RECOVERY_USER:
+            raise InvalidCredentials
+        self._write_entry(master_key, name, password, entry.get("role") or ROLE_ADMIN)
+
     def unlock_with_recovery_code(self, code: str) -> bytes:
-        return self.unlock(RECOVERY_USER, normalize_recovery_code(code))
+        return self._open_entry(RECOVERY_USER, normalize_recovery_code(code))[0]
 
     def set_recovery_code(self, master_key: bytes, code: str) -> None:
-        self.add_user(master_key, RECOVERY_USER, normalize_recovery_code(code))
+        self._write_entry(master_key, RECOVERY_USER, normalize_recovery_code(code), _ROLE_RECOVERY)
 
     def change_password(self, username: str, old_password: str, new_password: str) -> None:
-        """Zmienia hasło; baza nie wymaga ponownego szyfrowania."""
-        self.add_user(self.unlock(username, old_password), username, new_password)
+        master_key, role = self.unlock_with_role(username, old_password)
+        self._write_entry(master_key, normalize_username(username), new_password, role)
 
     def remove_user(self, username: str) -> None:
         data = self._load()

@@ -19,12 +19,30 @@ class Session:
     username: str
     master_key: bytes
     keystore: security.KeyStore
+    role: str = security.ROLE_USER
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == security.ROLE_ADMIN
+
+    @property
+    def role_label(self) -> str:
+        return security.ROLE_LABELS.get(self.role, self.role)
 
 
 # ---------------------------------------------------------------------------
 # Funkcje pomocnicze
 # ---------------------------------------------------------------------------
 
+
+def _require_admin(session: Session, parent: tk.Misc) -> bool:
+    if session.is_admin:
+        return True
+    messagebox.showwarning(
+        "Brak uprawnień", "Tę operację może wykonać tylko administrator.",
+        parent=parent
+    )
+    return False
 
 def _add_field(parent: tk.Misc, row: int, label: str, *, secret: bool = False) -> ttk.Entry:
     ttk.Label(parent, text=label).grid(row=row, column=0, sticky=tk.W, pady=5, padx=(0, 10))
@@ -124,7 +142,7 @@ class LoginDialog(_StartupDialog):
         try:
             if username == security.RECOVERY_USER:
                 raise security.InvalidCredentials
-            master_key = self.keystore.unlock(username, password)
+            master_key, role = self.keystore.unlock_with_role(username, password)
         except security.InvalidCredentials:
             self.error_label.configure(text="Nieprawidłowy login lub hasło.")
             self.password_entry.delete(0, tk.END)
@@ -145,7 +163,7 @@ class LoginDialog(_StartupDialog):
             messagebox.showerror("Błąd szyfrowania", str(error), parent=self)
             return
 
-        self.session = Session(username, master_key, self.keystore)
+        self.session = Session(username, master_key, self.keystore, role)
         self.destroy()
 
     def open_recovery(self) -> None:
@@ -206,7 +224,7 @@ class SetupDialog(_StartupDialog):
         recovery_code = security.generate_recovery_code()
 
         def save_keys() -> None:
-            self.keystore.add_user(master_key, username, password)
+            self.keystore.add_user(master_key, username, password, security.ROLE_ADMIN)
             self.keystore.set_recovery_code(master_key, recovery_code)
 
         try:
@@ -222,7 +240,7 @@ class SetupDialog(_StartupDialog):
             return
 
         self.wait_window(RecoveryCodeDialog(self, recovery_code))
-        self.session = Session(security.normalize_username(username), master_key, self.keystore)
+        self.session = Session(security.normalize_username(username), master_key, self.keystore, security.ROLE_ADMIN)
         self.destroy()
 
     def _show_setup_error(self, error: BaseException) -> None:
@@ -367,7 +385,7 @@ class RecoveryDialog(BaseDialog):
             messagebox.showerror("Błędny kod", "Nieprawidłowy kod awaryjny.", parent=self)
             return
 
-        self.keystore.add_user(master_key, username, password)
+        self.keystore.set_password(master_key, username, password)
         messagebox.showinfo(
             "Hasło zmienione", "Nowe hasło zostało ustawione. Zaloguj się nim.", parent=self
         )
@@ -429,11 +447,20 @@ class AddUserDialog(BaseDialog):
         self.password_entry = _add_field(form, 1, "Hasło:", secret=True)
         self.repeat_entry = _add_field(form, 2, "Powtórz hasło:", secret=True)
 
+        ttk.Label(form, text="Uprawnienia:").grid(row=3, column=0, sticky=tk.W, pady=5, padx=(0, 10))
+        self._roles = list(security.ROLE_LABELS)  
+        self.role_combo = ttk.Combobox(
+            form, values=[security.ROLE_LABELS[r] for r in self._roles], state="readonly"
+        )
+        self.role_combo.current(self._roles.index(security.ROLE_USER))
+        self.role_combo.grid(row=3, column=1, sticky=tk.EW, pady=5)
         self._add_button_bar("👥 Dodaj", self.add_user)
         self.username_entry.focus_set()
-        self._show(420, 210)
+        self._show(420, 250)
 
     def add_user(self) -> None:
+        if not _require_admin(self.session, self):
+            return
         username = self.username_entry.get()
         password = self.password_entry.get()
         if not _validate_username(username, self):
@@ -444,23 +471,33 @@ class AddUserDialog(BaseDialog):
         if not _validate_new_password(password, self.repeat_entry.get(), self):
             return
 
-        self.session.keystore.add_user(self.session.master_key, username, password)
+        role = self._roles[self.role_combo.current()]
+
+        self.session.keystore.add_user(self.session.master_key, username, password, role)
         messagebox.showinfo(
-            "Dodano", f"Użytkownik „{security.normalize_username(username)}” został dodany.", parent=self
+            "Dodano",
+            f"Użytkownik „{security.normalize_username(username)}” "
+            f"({security.ROLE_LABELS[role].lower()}) został dodany.",
+            parent=self,
         )
         self.destroy()
 
 
 class RemoveUserDialog(BaseDialog):
 
-    def __init__(self, parent: tk.Misc, session: Session, usernames: list[str]) -> None:
+    def __init__(self, parent: tk.Misc, session: Session, users: list[tuple[str, str]]) -> None:
         super().__init__(parent, "Usuń użytkownika")
         self.session = session
+        self._usernames = [name for name, _role in users]
 
         ttk.Label(self.body, text="Wybierz użytkownika do usunięcia:", font=FONT_LABEL).pack(
             anchor=tk.W, pady=(0, 6)
         )
-        self.user_combo = ttk.Combobox(self.body, values=usernames, state="readonly")
+        self.user_combo = ttk.Combobox(
+            self.body,
+            values=[f"{name} ({security.ROLE_LABELS[role].lower()})" for name, role in users],
+            state="readonly",
+        )
         self.user_combo.current(0)
         self.user_combo.pack(fill=tk.X)
         ttk.Label(
@@ -473,7 +510,11 @@ class RemoveUserDialog(BaseDialog):
         self._show(400, 180)
 
     def remove_user(self) -> None:
-        username = self.user_combo.get()
+        if not _require_admin(self.session, self):
+            return
+        username = self._usernames[self.user_combo.current()]
+        if username == self.session.username:  # zabezpieczenie: nie można usunąć samego siebie
+            return
         if not messagebox.askyesno(
             "Potwierdzenie", f"Czy na pewno usunąć użytkownika „{username}”?", parent=self
         ):
@@ -484,6 +525,8 @@ class RemoveUserDialog(BaseDialog):
 
 
 def regenerate_recovery_code(parent: tk.Misc, session: Session) -> None:
+    if not _require_admin(session, parent):
+        return
     if not messagebox.askyesno(
         "Nowy kod awaryjny",
         "Zostanie wygenerowany nowy kod awaryjny, a dotychczasowy przestanie działać.\n\n"

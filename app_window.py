@@ -415,12 +415,17 @@ class PhoneDatabaseApp(tk.Tk):
         self.db_menu.add_command(label="🔄 Przywróć bazę z pliku (.db)", command=self.restore_db_backup)
         self.db_menu.add_separator()
         self.db_menu.add_command(label="🔑 Zmień hasło", command=self.open_change_password)
-        self.db_menu.add_command(label="👥 Dodaj użytkownika", command=self.open_add_user)
-        self.db_menu.add_command(label="🚫 Usuń użytkownika", command=self.open_remove_user)
-        self.db_menu.add_command(
-            label="🆘 Wygeneruj nowy kod awaryjny",
-            command=lambda: regenerate_recovery_code(self, self.session),
-        )
+        self._admin_menu_items: list[int] = []
+        for label, command in (
+            ("👥 Dodaj użytkownika (administrator)", self.open_add_user),
+            ("🚫 Usuń użytkownika (administrator)", self.open_remove_user),
+            ("🆘 Wygeneruj nowy kod awaryjny (administrator)", 
+            self.regenerate_recovery_code),
+        ):
+            self.db_menu.add_command(label=label, command=command)
+            self._admin_menu_items.append(self.db_menu.index(tk.END))
+        self.db_menu.add_separator()
+        self.db_menu.add_command(label="🚪 Wyloguj", command=self.logout)
 
         self.btn_db_tools = ttk.Button(
             actions, text="⚙️ Opcje bazy ▾", style="Secondary.TButton", command=self.show_db_tools_menu
@@ -449,9 +454,24 @@ class PhoneDatabaseApp(tk.Tk):
 
         self.lbl_count = ttk.Label(search_row, style="Badge.TLabel")
         self.lbl_count.pack(side=tk.RIGHT)
-        ttk.Label(
-            search_row, text=f"👤 {self.session.username}", style="BrandSub.TLabel"
-        ).pack(side=tk.RIGHT, padx=(0, 12))
+        self.lbl_user = ttk.Label(search_row, style="BrandSub.TLabel")
+        self.lbl_user.pack(side=tk.RIGHT, padx=(0, 6))
+        self._apply_session()
+
+    def _apply_session(self) -> None:
+        suffix = " (administrator)" if self.session.is_admin else ""
+        self.lbl_user.configure(text=f"👤 {self.session.username}{suffix}")
+        state = tk.NORMAL if self.session.is_admin else tk.DISABLED
+        for index in self._admin_menu_items:
+            self.db_menu.entryconfigure(index, state=state)
+
+    def _require_admin(self) -> bool:
+        if self.session.is_admin:
+            return True
+        messagebox.showwarning(
+            "Brak uprawnień", "Tę operację może wykonać tylko administrator.", parent=self
+        )
+        return False
 
     def _build_phone_list(self, parent: ttk.Frame) -> None:
         card = ttk.LabelFrame(parent, text="  Lista urządzeń  ", style="Card.TLabelframe", padding=6)
@@ -908,6 +928,37 @@ class PhoneDatabaseApp(tk.Tk):
         finally:
             self.db_menu.grab_release()
 
+    def logout(self) -> None:
+        self._close_child_windows()
+        self.search_var.set("")
+        if self.show_deleted_var.get():
+            self.show_deleted_var.set(False)
+            self._layout_form_buttons(in_trash=False)
+        self.prepare_new_phone()
+        self.tree.delete(*self.tree.get_children())
+        self._warning_items = set()
+        self.lbl_count.configure(text="")
+
+        db.lock()
+        self.withdraw()
+
+        session = authenticate(self)
+        if session is None:
+            self.destroy()
+            return
+
+        self.session = session
+        self.lbl_user.configure(text=f"👤 {self.session.username}")
+        self._apply_session()
+        self.load_phone_list()
+        self.deiconify()
+        self.entries["model"].focus_set()  
+
+    def _close_child_windows(self) -> None:
+        for widget in self.winfo_children():
+            if isinstance(widget, tk.Toplevel):
+                widget.destroy()
+
     def open_employer_dialog(self) -> None:
         EmployerDialog(self)
 
@@ -915,17 +966,27 @@ class PhoneDatabaseApp(tk.Tk):
         ChangePasswordDialog(self, self.session)
 
     def open_add_user(self) -> None:
-        AddUserDialog(self, self.session)
+        if self._require_admin():
+            AddUserDialog(self, self.session)
+
+    def regenerate_recovery_code(self) -> None:
+        if self._require_admin():
+            regenerate_recovery_code(self, self.session)
 
     def open_remove_user(self) -> None:
+        if not self._require_admin():
+            return
         others = [
-            name for name in self.session.keystore.usernames() if name != self.session.username
+            (name, role)
+            for name, role in self.session.keystore.users_with_roles()
+            if name != self.session.username
         ]
         if not others:
             messagebox.showinfo(
                 "Brak użytkowników", "Nie ma innych użytkowników do usunięcia.", parent=self
             )
             return
+        RemoveUserDialog(self, self.session, others)
 
     def open_protocol_dialog(self) -> None:
         ProtocolDialog(self, initial_phone_id=self.selected_phone_id)
@@ -1034,6 +1095,7 @@ class PhoneDatabaseApp(tk.Tk):
                 "zaszyfrowany innym kluczem (kopia z innej instalacji programu).",
                 parent=self,
             )
+            return
         except Exception as error:  
             messagebox.showerror(
                 "Błąd",
