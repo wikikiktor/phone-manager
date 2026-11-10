@@ -135,7 +135,7 @@ class SortState:
 
 
 def _timestamp() -> str:
-    return datetime.now().strftime("%Y%m%d_%H%M")  
+    return datetime.now().strftime("%Y%m%d_%H%M")  # noqa: DTZ005
 
 
 def _create_tree(
@@ -209,6 +209,7 @@ class PhoneDatabaseApp(tk.Tk):
 
         self.selected_phone_id: Optional[int] = None
         self.show_deleted_var = tk.BooleanVar(value=False)
+        self.only_damaged_var = tk.BooleanVar(value=False)
         self.search_var = tk.StringVar()
         self.var_protocol = tk.BooleanVar(value=False)
         self.equipment_vars = {option: tk.BooleanVar(value=False) for option in EQUIPMENT_OPTIONS}
@@ -260,6 +261,12 @@ class PhoneDatabaseApp(tk.Tk):
             font=(FONT_FAMILY, 8),
         )
         configure(
+            "UserInfo.TLabel",
+            background=Palette.BG_APP,
+            foreground=Palette.TEXT_HEADING,
+            font=(FONT_FAMILY, 8, "bold"),
+        )
+        configure(
             "CardTitle.TLabel",
             background=Palette.BG_CARD,
             foreground=Palette.TEXT_HEADING,
@@ -294,6 +301,7 @@ class PhoneDatabaseApp(tk.Tk):
         )
 
         configure("TEntry", fieldbackground=Palette.BG_CARD, padding=5)
+        configure("Invalid.TEntry", fieldbackground=Palette.WARNING_ROW_BG, padding=5)
         configure("TCombobox", fieldbackground=Palette.BG_CARD, padding=4)
         self.style.map("TCombobox", fieldbackground=[("readonly", Palette.BG_CARD)])
 
@@ -395,6 +403,8 @@ class PhoneDatabaseApp(tk.Tk):
         ttk.Label(
             brand, text="System ewidencji sprzętu i protokołów", style="BrandSub.TLabel"
         ).pack(anchor=tk.W)
+        self.lbl_user = ttk.Label(brand, style="UserInfo.TLabel")
+        self.lbl_user.pack(anchor=tk.W, pady=(2, 0))
 
         actions = ttk.Frame(top_row)
         actions.pack(side=tk.RIGHT)
@@ -419,8 +429,7 @@ class PhoneDatabaseApp(tk.Tk):
         for label, command in (
             ("👥 Dodaj użytkownika (administrator)", self.open_add_user),
             ("🚫 Usuń użytkownika (administrator)", self.open_remove_user),
-            ("🆘 Wygeneruj nowy kod awaryjny (administrator)", 
-            self.regenerate_recovery_code),
+            ("🆘 Wygeneruj nowy kod awaryjny (administrator)", self.regenerate_recovery_code),
         ):
             self.db_menu.add_command(label=label, command=command)
             self._admin_menu_items.append(self.db_menu.index(tk.END))
@@ -439,7 +448,7 @@ class PhoneDatabaseApp(tk.Tk):
         search_box.pack(side=tk.LEFT, fill=tk.X)
 
         ttk.Label(search_box, text="🔍", style="SearchIcon.TLabel").pack(side=tk.LEFT, padx=(0, 4))
-        self.search_entry = ttk.Entry(search_box, textvariable=self.search_var, width=36)
+        self.search_entry = ttk.Entry(search_box, textvariable=self.search_var, width=28)
         self.search_entry.pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(
             search_box, text="✕", width=2, style="Secondary.TButton", command=self.clear_search
@@ -451,11 +460,15 @@ class PhoneDatabaseApp(tk.Tk):
             variable=self.show_deleted_var,
             command=self.on_toggle_trash_view,
         ).pack(side=tk.LEFT)
+        ttk.Checkbutton(
+            search_box,
+            text="⚠️ Tylko oznaczone",
+            variable=self.only_damaged_var,
+            command=self.load_phone_list,
+        ).pack(side=tk.LEFT, padx=(12, 0))
 
         self.lbl_count = ttk.Label(search_row, style="Badge.TLabel")
         self.lbl_count.pack(side=tk.RIGHT)
-        self.lbl_user = ttk.Label(search_row, style="BrandSub.TLabel")
-        self.lbl_user.pack(side=tk.RIGHT, padx=(0, 6))
         self._apply_session()
 
     def _apply_session(self) -> None:
@@ -518,6 +531,12 @@ class PhoneDatabaseApp(tk.Tk):
             self.entries[key] = entry
 
         self.entries["nr_tel"].bind("<FocusOut>", self._format_phone_entry)
+        for event in ("<KeyRelease>", "<FocusOut>"):
+            self.entries["imei"].bind(event, self._update_imei_style, add="+")
+
+    def _update_imei_style(self, _event: Optional[tk.Event] = None) -> None:
+        invalid = not db.is_valid_imei(self.entries["imei"].get())
+        self.entries["imei"].configure(style="Invalid.TEntry" if invalid else "TEntry")
 
     def _build_assignment_fields(self, parent: ttk.Frame) -> None:
         box = ttk.LabelFrame(
@@ -632,7 +651,8 @@ class PhoneDatabaseApp(tk.Tk):
     def load_phone_list(self) -> None:
         query = self.search_var.get().strip()
         in_trash = self.show_deleted_var.get()
-        rows = db.search_phones(query, show_deleted=in_trash)
+        only_damaged = self.only_damaged_var.get()
+        rows = db.search_phones(query, show_deleted=in_trash, only_damaged=only_damaged)
 
         self.tree.delete(*self.tree.get_children())
         self._warning_items = set()
@@ -644,12 +664,12 @@ class PhoneDatabaseApp(tk.Tk):
 
         _apply_sort(self.tree, PHONE_COLUMNS, self._phone_sort)
         _apply_row_tags(self.tree, self._warning_items)
-        self._update_counter(len(rows), query, in_trash)
+        self._update_counter(len(rows), bool(query) or only_damaged, in_trash)
 
-    def _update_counter(self, found: int, query: str, in_trash: bool) -> None:
+    def _update_counter(self, found: int, filtered: bool, in_trash: bool) -> None:
         total = db.get_phones_count(show_deleted=in_trash)
         prefix = "W koszu:" if in_trash else "Aktywnych:"
-        if query:
+        if filtered:
             text = f"{prefix} znaleziono {found} z {total}"
         else:
             text = f"{prefix} {total} telefonów"
@@ -706,6 +726,7 @@ class PhoneDatabaseApp(tk.Tk):
                 self._set_field(key, phone.get(key))
         self._set_field("stan_baterii", phone.get("stan_baterii") or db.DEFAULT_BATTERY_STATE)
 
+        self._update_imei_style()
         self.var_protocol.set(bool(phone.get("czy_protokol")))
         equipment = {
             item.strip()
@@ -717,6 +738,7 @@ class PhoneDatabaseApp(tk.Tk):
 
     def _collect_form_data(self) -> dict[str, Any]:
         data: dict[str, Any] = {key: widget.get().strip() for key, widget in self.entries.items()}
+        data["imei"] = db.normalize_imei(data["imei"])
         data["czy_protokol"] = int(self.var_protocol.get())
         data["wyposazenie"] = EQUIPMENT_SEPARATOR.join(
             option for option, variable in self.equipment_vars.items() if variable.get()
@@ -756,6 +778,7 @@ class PhoneDatabaseApp(tk.Tk):
             variable.set(False)
 
         self._update_warning_button(False)
+        self._update_imei_style()
         self.lbl_editing_status.configure(text=NEW_PHONE_STATUS)
         self.history_tree.delete(*self.history_tree.get_children())
         self.btn_add_note.pack_forget()
@@ -791,19 +814,61 @@ class PhoneDatabaseApp(tk.Tk):
             )
             return
 
+        current_row = (
+            db.get_phone_by_id(self.selected_phone_id)
+            if self.selected_phone_id is not None
+            else None
+        )
+        current = dict(zip(db.PHONE_FIELDS, current_row)) if current_row else {}
+        if not self._confirm_identifiers(data, current):
+            return
+
         if self.selected_phone_id is None:
             self.selected_phone_id = db.insert_phone(data)
             messagebox.showinfo("Sukces", "Nowy telefon został pomyślnie zarejestrowany.", parent=self)
         else:
-            current = db.get_phone_by_id(self.selected_phone_id)
-            if current is not None:
-                data["czy_uszkodzony"] = dict(zip(db.PHONE_FIELDS, current))["czy_uszkodzony"]
+            if current:
+                data["czy_uszkodzony"] = current["czy_uszkodzony"]
             db.update_phone(self.selected_phone_id, data)
             messagebox.showinfo("Sukces", "Dane telefonu zostały zaktualizowane.", parent=self)
 
         self.load_phone_list()
         self._select_phone_in_list(self.selected_phone_id)
         self.refresh_selected_details()
+
+    def _confirm_identifiers(self, data: dict[str, Any], current: dict[str, Any]) -> bool:
+        imei_changed = db.normalize_imei(current.get("imei")) != data["imei"]
+        phone_changed = db.format_phone_number(current.get("nr_tel")) != data["nr_tel"]
+
+        error = db.imei_error(data["imei"]) if imei_changed else None
+        if error and not messagebox.askyesno(
+            "Niepoprawny IMEI",
+            f"{error}\n\nIMEI: {data['imei']}\n\nCzy mimo to zapisać telefon?",
+            icon=messagebox.WARNING,
+            default=messagebox.NO,
+            parent=self,
+        ):
+            self.entries["imei"].focus_set()
+            return False
+
+        if not (imei_changed or phone_changed):
+            return True
+        duplicates = db.find_duplicates(
+            data["nr_tel"] if phone_changed else "",
+            data["imei"] if imei_changed else "",
+            exclude_id=self.selected_phone_id,
+        )
+        if duplicates and not messagebox.askyesno(
+            "Możliwy duplikat",
+            "W bazie są już telefony z tym samym numerem lub IMEI:\n\n"
+            + "\n".join(f" • {duplicate.describe()}" for duplicate in duplicates)
+            + "\n\nCzy mimo to zapisać telefon?",
+            icon=messagebox.WARNING,
+            default=messagebox.NO,
+            parent=self,
+        ):
+            return False
+        return True
 
     def soft_delete_phone(self) -> None:
         if not self._require_selected_phone("Nie wybrano telefonu do przeniesienia do kosza."):
@@ -931,6 +996,7 @@ class PhoneDatabaseApp(tk.Tk):
     def logout(self) -> None:
         self._close_child_windows()
         self.search_var.set("")
+        self.only_damaged_var.set(False)
         if self.show_deleted_var.get():
             self.show_deleted_var.set(False)
             self._layout_form_buttons(in_trash=False)
@@ -948,11 +1014,10 @@ class PhoneDatabaseApp(tk.Tk):
             return
 
         self.session = session
-        self.lbl_user.configure(text=f"👤 {self.session.username}")
         self._apply_session()
         self.load_phone_list()
         self.deiconify()
-        self.entries["model"].focus_set()  
+        self.entries["model"].focus_set()
 
     def _close_child_windows(self) -> None:
         for widget in self.winfo_children():

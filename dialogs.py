@@ -45,6 +45,9 @@ PROTOCOL_FORMATS: dict[str, tuple[str, Callable[..., None]]] = {
 
 def center_dialog(window: tk.Toplevel, width: int, height: int, parent: tk.Misc) -> None:
     window.update_idletasks()
+    width = min(max(width, window.winfo_reqwidth()), window.winfo_screenwidth())
+    height = min(max(height, window.winfo_reqheight()), window.winfo_screenheight() - 80)
+    window.minsize(width, height)
     x = parent.winfo_rootx() + (parent.winfo_width() - width) // 2
     y = parent.winfo_rooty() + (parent.winfo_height() - height) // 2
     window.geometry(f"{width}x{height}+{max(0, x)}+{max(0, y)}")
@@ -54,6 +57,11 @@ def _run_callback(callback: Callback) -> None:
     if callback is not None:
         callback()
 
+def _bullet_list(items: Sequence[str], limit: int = 10) -> str:
+    lines = [f" • {item}" for item in items[:limit]]
+    if len(items) > limit:
+        lines.append(f" … i {len(items) - limit} więcej")
+    return "\n".join(lines)
 
 def _excel_value_to_text(value: Any) -> str:
     if value is None:
@@ -217,10 +225,11 @@ class ExcelImportDialog(BaseDialog):
         self.combos: dict[str, ttk.Combobox] = {}
         self.has_history_sheet = False
         self.import_history_var = tk.BooleanVar(value=False)
+        self.skip_duplicates_var = tk.BooleanVar(value=True)
 
         if self._load_workbook():
             self._build_ui()
-            self._show(620, 480)
+            self._show(620, 510)
 
    
 # ---------------------------------------------------------------------------
@@ -286,12 +295,19 @@ class ExcelImportDialog(BaseDialog):
             combo.grid(row=row, column=1, sticky=tk.EW, pady=3, padx=4)
             self.combos[field_key] = combo
 
+        options_frame = ttk.Frame(self.body)
+        options_frame.pack(fill=tk.X, pady=(8, 0))
+        ttk.Checkbutton(
+            options_frame,
+            text="Pomiń telefony, które już są w bazie (ten sam numer telefonu lub IMEI)",
+            variable=self.skip_duplicates_var,
+        ).pack(anchor=tk.W) 
         if self.has_history_sheet:
             ttk.Checkbutton(
-                self.body,
+                options_frame,
                 text=f"Importuj również historię zdarzeń (znaleziono arkusz '{HISTORY_SHEET_NAME}')",
                 variable=self.import_history_var,
-            ).pack(anchor=tk.W, pady=8)
+            ).pack(anchor=tk.W, pady=(4, 0))
 
         self._add_button_bar("📥 Importuj dane", self.import_data)
 
@@ -346,12 +362,26 @@ class ExcelImportDialog(BaseDialog):
             return
 
         history_records = self._read_history_records()
-        phones_count, history_count = db.bulk_insert_phones(phone_records, history_records)
+        result = db.bulk_insert_phones(
+            phone_records, history_records, skip_duplicates=self.skip_duplicates_var.get()
+        )
 
-        message = f"Pomyślnie zaimportowano {phones_count} telefon(ów)."
+        message = f"Pomyślnie zaimportowano {result.phones} telefon(ów)."
         if history_records is not None:
-            message += f"\nZaimportowano również {history_count} wpis(ów) historii."
-        messagebox.showinfo("Sukces", message, parent=self)
+            message += f"\nZaimportowano również {result.history} wpis(ów) historii."
+        if result.skipped_duplicates:
+            message += (
+                f"\n\nPominięto {len(result.skipped_duplicates)} telefon(ów), których numer "
+                f"lub IMEI już jest w bazie:\n{_bullet_list(result.skipped_duplicates)}"
+            )
+        if result.invalid_imei:
+            message += (
+                f"\n\nUwaga: {len(result.invalid_imei)} zaimportowany(ch) telefon(ów) ma "
+                f"niepoprawny IMEI - sprawdź go:\n{_bullet_list(result.invalid_imei)}"
+            )
+
+        show = messagebox.showwarning if result.invalid_imei else messagebox.showinfo
+        show("Import zakończony", message, parent=self)
 
         self.destroy()
         _run_callback(self.on_success_callback)
@@ -414,7 +444,6 @@ class ExcelImportDialog(BaseDialog):
 # ---------------------------------------------------------------------------
 
 class EmployerDialog(BaseDialog):
-    """Edycja danych pracodawcy wykorzystywanych w protokołach."""
 
     FIELDS: tuple[tuple[str, str], ...] = (
         ("nazwa_firmy", "Nazwa firmy:"),

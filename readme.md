@@ -31,7 +31,7 @@ Przy pierwszym uruchomieniu program poprosi o utworzenie **konta administratora*
 
 ### 1.3. Logowanie
 * Przy każdym uruchomieniu wpisz **login** i **hasło**, a następnie kliknij **`Zaloguj`** (lub naciśnij Enter). Wielkość liter w loginie nie ma znaczenia.
-* Nazwa zalogowanego użytkownika jest widoczna na górnym pasku (👤).
+* Nazwa zalogowanego użytkownika jest widoczna w lewym górnym rogu, pod nazwą programu (👤).
 * **Wylogowanie:** kliknij **`🚪 Wyloguj`** obok nazwy użytkownika (lub wybierz tę opcję w menu **`⚙️ Opcje bazy ▾`**). Dane znikają z ekranu, baza zostaje zablokowana i pojawia się okno logowania – można zalogować się ponownie, także jako inny użytkownik. Zamknięcie okna logowania kończy pracę programu. Wylogowuj się, gdy odchodzisz od komputera.
 
 ### 1.4. Nie pamiętam hasła
@@ -73,6 +73,11 @@ Program przechowuje dane w profilu użytkownika, w folderze:
 5. Wybierz **Stan baterii** oraz opcjonalnie zaznacz **Wysłany protokół** (jeśli dokument został już odebrany).
 6. Kliknij zielony przycisk **`💾 Zapisz zmiany`**. Telefon pojawi się na liście po lewej stronie, a w jego historii zostanie odnotowany fakt dodania.
 
+**Kontrola poprawności danych:**
+* **IMEI** – program sprawdza, czy numer ma 15 cyfr i poprawną cyfrę kontrolną (algorytm Luhna), dzięki czemu wykrywa większość literówek. Niepoprawny IMEI podświetla pole na czerwono już podczas wpisywania, a przy zapisie program pyta, czy mimo to zapisać telefon. Spacje i myślniki (np. `49-015420-323751-8`) są usuwane automatycznie.
+* **Duplikaty** – jeśli w bazie (także w koszu) jest już telefon z tym samym numerem (niezależnie od zapisu, np. `+48 600 700 800` = `600-700-800`) lub tym samym IMEI, program wyświetli listę takich telefonów i zapyta, czy mimo to zapisać.
+* Przy edycji sprawdzane są tylko zmienione numery – zmiana innych pól starego rekordu nie powoduje ostrzeżeń.
+
 ### 2.2. Edycja i automatyczny rejestr zmian
 * Kliknięcie na dowolny telefon z listy po lewej stronie ładuje jego dane oraz historię zdarzeń.
 * Zmodyfikuj dowolne pole (np. zmiana użytkownika, numeru SIM, wymiana ładowarki) i kliknij **`💾 Zapisz zmiany`**.
@@ -87,6 +92,7 @@ W dolnej prawej części okna znajduje się dedykowana historia dla wybranego ur
 ### 2.4. Wyszukiwarka i sortowanie
 * **Wyszukiwarka w czasie rzeczywistym:** Wpisz szukaną frazę w pole u góry. Program filtruje urządzenia po numerze telefonu (również wpisanym ciągiem bez spacji i myślników), modelu, nazwisku użytkownika oraz numerze IMEI. Licznik po prawej pokazuje, ile telefonów pasuje do wyszukiwania.
 * **Przycisk `✕`:** Błyskawicznie czyści pole wyszukiwania.
+* **Filtr `⚠️ Tylko oznaczone`:** pokazuje wyłącznie telefony oznaczone jako uszkodzone (pkt 2.6). Działa razem z wyszukiwarką i widokiem kosza, a eksport do Excela obejmuje tylko widoczne telefony.
 * **Sortowanie:** Kliknij nagłówek kolumny na liście telefonów (*Nr telefonu*, *Użytkownik*, *Model*) lub w tabeli historii, aby posortować rekordy rosnąco lub malejąco (strzałki `▲` / `▼`). Sortowanie jest zachowywane po odświeżeniu listy.
 
 ### 2.5. Kosz i bezpieczne usuwanie (Kosz vs Usuwanie trwałe)
@@ -124,6 +130,8 @@ Brakujące dane (np. numer seryjny) są w protokole zastępowane linią kropek d
 
   > Plik Excel **nie jest szyfrowany** – przechowuj go ostrożnie.
 * **Import z Excela:** Kliknij **`📥 Import Excel`** i wskaż plik `.xlsx` lub `.xlsm` (stary format `.xls` nie jest obsługiwany – zapisz go w Excelu jako `.xlsx`). Kreator pozwoli Ci łatwo dopasować kolumny z Twojego dotychczasowego arkusza do pól w programie. Jeśli plik posiada zakładkę *Historia zdarzeń*, przeniesie również wpisy historyczne.
+  * Opcja **„Pomiń telefony, które już są w bazie”** (domyślnie włączona) pomija telefony, których numer lub IMEI jest już w bazie albo powtarza się w pliku – razem z ich historią. Dzięki temu ponowny import tego samego pliku nie tworzy kopii.
+  * Po imporcie program pokazuje podsumowanie: liczbę dodanych telefonów, listę pominiętych duplikatów oraz telefony z niepoprawnym IMEI (zostają zaimportowane, ale warto je sprawdzić).
 
 ### 2.10. Kopia zapasowa i przywracanie bazy (Backup)
 W rozwijanym menu **`⚙️ Opcje bazy ▾`**:
@@ -208,7 +216,7 @@ On first launch the application asks you to create an **administrator account** 
 
 ### 1.3. Signing In
 * Enter your **login** and **password** and click **`Zaloguj`** (*Sign in*) or press Enter. Logins are case-insensitive.
-* The signed-in user is shown on the top bar (👤).
+* The signed-in user is shown in the top-left corner, below the application name (👤).
 * **Signing out:** click **`🚪 Wyloguj`** (*Sign out*) next to the user name (also available under **`⚙️ Opcje bazy ▾`**). Data is cleared from the screen, the database is locked and the sign-in window appears – you can sign in again, also as a different user. Closing the sign-in window exits the application. Sign out whenever you leave your computer.
 
 ### 1.4. Forgotten Password
@@ -246,6 +254,11 @@ All data is stored in your user profile:
 4. Select battery health condition and flag whether the signed protocol has been delivered.
 5. Click **`💾 Zapisz zmiany`** (*Save changes*).
 
+**Data checks:**
+* **IMEI** must have 15 digits and a valid check digit (Luhn algorithm). An invalid IMEI turns the field red while typing, and saving asks for confirmation. Spaces and dashes are removed automatically.
+* **Duplicates:** if a phone with the same number (in any notation, e.g. `+48 600 700 800` = `600-700-800`) or the same IMEI already exists (including the trash), the matching phones are listed and saving asks for confirmation.
+* When editing, only changed numbers are checked.
+
 ### 2.2. Editing & Automated Audit Trail
 * Select any record from the left-side list to view its properties and event log.
 * Modify values and click **`💾 Zapisz zmiany`**. The system detects changes and records an entry in the event log showing the previous and new values with timestamps.
@@ -257,6 +270,7 @@ All data is stored in your user profile:
 ### 2.4. Search & Sorting
 * **Live Search:** Instant filtering across phone numbers (with or without dashes), device models, assigned users and IMEI numbers.
 * **Clear Search (`✕`):** Clears search query in one click.
+* **`⚠️ Tylko oznaczone`** (*Flagged only*) filter: shows only phones flagged as damaged. Works together with search and the trash view; Excel export includes only visible phones.
 * **Column Sorting:** Click any column header in the device list or history log to sort ascending or descending (`▲` / `▼`). Sorting is kept when the list refreshes.
 
 ### 2.5. Trash Management (Soft vs Hard Delete)
@@ -288,6 +302,8 @@ Missing values (e.g. serial number) are replaced with a dotted line to be filled
 ### 2.9. Excel Import & Export (.xlsx)
 * **Export to Excel:** Click **`📊 Eksport Excel`** to generate a styled workbook containing the visible devices and their event logs on separate sheets. **The Excel file is not encrypted** – store it with care.
 * **Import from Excel:** Click **`📥 Import Excel`** to launch the interactive column mapper. Supported formats: `.xlsx` and `.xlsm` (legacy `.xls` files must be re-saved as `.xlsx` first).
+  * **„Pomiń telefony, które już są w bazie”** (*Skip phones already in the database*, on by default) skips phones whose number or IMEI already exists or repeats within the file, together with their history – re-importing the same file creates no copies.
+  * A summary lists imported phones, skipped duplicates and phones with an invalid IMEI.
 
 ### 2.10. Database Backup & Restore
 Under **`⚙️ Opcje bazy ▾`**:

@@ -7,6 +7,8 @@ import shutil
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import closing, contextmanager
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -404,6 +406,102 @@ def format_phone_number(val: Any) -> str:
         return f"+48 {local[:3]}-{local[3:6]}-{local[6:]}"
     return val_str
 
+# ---------------------------------------------------------------------------
+# Walidacja IMEI i wykrywanie duplikatów
+# ---------------------------------------------------------------------------
+
+IMEI_LENGTH = 15
+
+def normalize_imei(value: Any) -> str:
+    text = _clean_text(value)
+    compact = re.sub(r"[\s-]", "", text)
+    return compact if compact.isdigit() else text
+
+def _luhn_checksum_valid(digits: str) -> bool:
+    total = 0
+    for position, char in enumerate(reversed(digits)):
+        digit = int(char)
+        if position % 2 == 1:
+            digit *= 2
+            if digit > 9:
+                digit -= 9
+        total += digit
+    return total % 10 == 0
+
+def imei_error(value: Any) -> str | None:
+    imei = normalize_imei(value)
+    if not imei:
+        return None
+    if not imei.isdigit():
+        return "IMEI może zawierać tylko cyfry."
+    if len(imei) != IMEI_LENGTH:
+        return f"IMEI musi mieć {IMEI_LENGTH} cyfr (wpisano {len(imei)})."
+    if not _luhn_checksum_valid(imei):
+        return "Nieprawidłowa cyfra kontrolna IMEI - prawdopodobnie literówka."
+    return None
+
+def is_valid_imei(value: Any) -> bool:
+    return imei_error(value) is None
+
+def _phone_key(value: Any) -> str:
+    digits = re.sub(r"\D", "", _clean_text(value))
+    if len(digits) == 11 and digits.startswith("48"):
+        digits= digits[2:]
+    return digits
+
+@dataclass(frozen=True)
+class Duplicate:
+    phone_id:int
+    fields: tuple[str, ...]
+    nr_tel: str
+    model: str
+    user: str
+    in_trash: bool
+
+    def describe(self) -> str:
+        names = {"nr_tel": "numer telefonu", "imei": "IMEI"}
+        what = "ten sam " + " i ".join(names[name] for name in self.fields)
+        trash = ", w koszu" if self.in_trash else ""
+        return (
+            f"ID #{self.phone_id}: {self.model} ({self.nr_tel}), "
+            f"użytkownik: {self.user or '[brak]'}{trash} - {what}"
+        )
+
+def _identifier_rows() -> list[tuple]:
+    with _cursor() as cursor:
+        cursor.execute(
+            "SELECT id, nr_tel, imei, model, osoba_uzytkujaca, COALESCE(czy_usuniety, 0) "
+            "FROM telefony"
+        )
+        return cursor.fetchall()
+
+def find_duplicates(nr_tel: Any, imei: Any, exclude_id: int | None = None) -> list[Duplicate]:
+    phone_key = _phone_key(nr_tel)
+    imei_key = normalize_imei(imei)
+    if not phone_key and not imei_key:
+        return[]
+
+    duplicates = []
+    for phone_id, row_nr, row_imei, model, user, deleted in _identifier_rows():
+        if phone_id == exclude_id:
+            continue
+        matching = []
+        if phone_key and _phone_key(row_nr) == phone_key:
+            matching.append("nr_tel")
+        if imei_key and normalize_imei(row_imei) == imei_key:
+            matching.append("imei")
+        if matching:
+            duplicates.append(
+                Duplicate(
+                    phone_id=phone_id,
+                    fields=tuple(matching),
+                    nr_tel=row_nr,
+                    model=model,
+                    user=user or "",
+                    in_trash=bool(deleted),
+                )
+            )
+    return duplicates
 
 # ---------------------------------------------------------------------------
 # Inicjalizacja bazy
@@ -449,7 +547,7 @@ def init_db() -> None:
 # ---------------------------------------------------------------------------
 
 
-def search_phones(query_str: str, show_deleted: bool = False) -> list[tuple]:
+def search_phones(query_str: str, show_deleted: bool = False, only_damaged: bool = False) -> list[tuple]:
     pattern = f"%{query_str}%"
     digits = re.sub(r"\D", "", query_str)
     digits_pattern = f"%{digits}%" if digits else pattern
@@ -467,9 +565,18 @@ def search_phones(query_str: str, show_deleted: bool = False) -> list[tuple]:
                 OR imei LIKE ?
             )
             AND czy_usuniety = ?
+            AND (? = 0 OR COALESCE(czy_uszkodzony, 0) = 1)
             ORDER BY id DESC
             """,
-            (pattern, digits_pattern, pattern, pattern, pattern, int(show_deleted)),
+            (
+                pattern,
+                digits_pattern,
+                pattern,
+                pattern,
+                pattern,
+                int(show_deleted),
+                int(only_damaged),
+            ),
         )
         return cursor.fetchall()
 
@@ -617,7 +724,7 @@ def _normalize_import_record(data: Mapping[str, Any]) -> dict[str, Any] | None:
         "model": model,
         "nr_tel": nr_tel,
         "nr_sim": _clean_text(data.get("nr_sim")),
-        "imei": _clean_text(data.get("imei")),
+        "imei": normalize_imei(data.get("imei")),
         "nr_seryjny": _clean_text(data.get("nr_seryjny")),
         "rodzaj": _clean_text(data.get("rodzaj")),
         "osoba_uzytkujaca": _clean_text(data.get("osoba_uzytkujaca")),
@@ -628,15 +735,30 @@ def _normalize_import_record(data: Mapping[str, Any]) -> dict[str, Any] | None:
         "czy_uszkodzony": _to_flag(data.get("czy_uszkodzony", 0)),
     }
 
+@dataclass
+class ImportResult:
+    phone: int = 0
+    history: int = 0
+    skipped_duplicates: list[str] = dataclass_field(default_factory=list)
+    invalid_imei: list[str] = dataclass_field(default_factory=list)
 
 def bulk_insert_phones(
     phone_records: Iterable[Mapping[str, Any]],
     history_records: Sequence[Mapping[str, Any]] | None = None,
-) -> tuple[int, int]:
+    skip_duplicates: bool = False,
+) -> ImportResult:
     timestamp = _now()
-    phones_inserted = 0
-    history_inserted = 0
+    result = ImportResult()
     phone_id_by_number: dict[str, int] = {}
+    skipped_phone_keys: set[str] = set()
+
+    known_phones: set[str] = set()
+    known_imeis: set[str] = set()
+    if skip_duplicates:
+        for _id, row_nr, row_imei, *_rest in _identifier_rows():
+            known_phones.add(_phone_key(row_nr))
+            if normalize_imei(row_imei):
+                known_imeis.add(normalize_imei(row_imei))
 
     with _cursor() as cursor:
         for raw_record in phone_records:
@@ -644,10 +766,26 @@ def bulk_insert_phones(
             if record is None:
                 continue
 
+            phone_key = _phone_key(record["nr_tel"])
+            imei = record["imei"]
+            label = f"{record['nr_tel']} ({record['model']})"
+
+            if skip_duplicates:
+                if phone_key in known_phones or (imei and imei in known_imeis):
+                    result.skipped_duplicates.append(label)
+                    skipped_phone_keys.add(phone_key)
+                    continue
+                known_phones.add(phone_key)
+                if imei:
+                    known_imeis.add(imei)
+
+            if imei_error(imei):
+                result.invalid_imei.append(f"{label}: {imei}")
+
             cursor.execute(_INSERT_PHONE_SQL, _phone_values(record))
             phone_id = cursor.lastrowid
             phone_id_by_number[record["nr_tel"]] = phone_id
-            phones_inserted += 1
+            result.phones += 1
 
             if not history_records:
                 _insert_history(
@@ -660,7 +798,7 @@ def bulk_insert_phones(
 
         for entry in history_records or ():
             nr_tel = format_phone_number(entry.get("nr_tel", ""))
-            if not nr_tel:
+            if not nr_tel or _phone_key(nr_tel) in skipped_phone_keys:
                 continue
 
             phone_id = phone_id_by_number.get(nr_tel)
@@ -679,9 +817,9 @@ def bulk_insert_phones(
                 entry.get("uwagi") or "",
                 date=entry.get("data") or timestamp,
             )
-            history_inserted += 1
+            result.history += 1
 
-    return phones_inserted, history_inserted
+    return result
 
 
 # ---------------------------------------------------------------------------
