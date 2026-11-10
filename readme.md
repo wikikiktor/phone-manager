@@ -22,7 +22,7 @@ Aplikacja **nie wymaga instalacji** środowiska deweloperskiego, żadnych biblio
 * Uruchom program dwuklikiem.
 
 ### 1.2. Pierwsze uruchomienie – konto administratora
-Przy pierwszym uruchomieniu program poprosi o utworzenie **konta administratora**:
+Przy pierwszym uruchomieniu program poprosi o utworzenie **konta administratora** (tylko administrator może później dodawać i usuwać użytkowników – zob. pkt 2.11):
 1. Wpisz login oraz hasło (co najmniej 8 znaków) i powtórz hasło.
 2. Kliknij **`Utwórz konto`**.
 3. Program wyświetli jednorazowo **kod awaryjny** (np. `5N8C-QXRD-QA6W-9RV8-DHNZ-M8CS`). **Zapisz go i przechowuj w bezpiecznym miejscu** (np. na papierze w sejfie). Kod pozwala ustawić nowe hasło, gdy zostanie zapomniane. Kod można skopiować przyciskiem **`📋 Kopiuj do schowka`**. Okno zamkniesz dopiero po zaznaczeniu pola *„Zapisałem kod awaryjny w bezpiecznym miejscu”*.
@@ -32,6 +32,7 @@ Przy pierwszym uruchomieniu program poprosi o utworzenie **konta administratora*
 ### 1.3. Logowanie
 * Przy każdym uruchomieniu wpisz **login** i **hasło**, a następnie kliknij **`Zaloguj`** (lub naciśnij Enter). Wielkość liter w loginie nie ma znaczenia.
 * Nazwa zalogowanego użytkownika jest widoczna na górnym pasku (👤).
+* **Wylogowanie:** kliknij **`🚪 Wyloguj`** obok nazwy użytkownika (lub wybierz tę opcję w menu **`⚙️ Opcje bazy ▾`**). Dane znikają z ekranu, baza zostaje zablokowana i pojawia się okno logowania – można zalogować się ponownie, także jako inny użytkownik. Zamknięcie okna logowania kończy pracę programu. Wylogowuj się, gdy odchodzisz od komputera.
 
 ### 1.4. Nie pamiętam hasła
 1. W oknie logowania kliknij **`Nie pamiętam hasła`**.
@@ -134,12 +135,27 @@ W rozwijanym menu **`⚙️ Opcje bazy ▾`**:
   **Przechowuj oba pliki razem** – bez pliku `.keys.json` kopii nie da się otworzyć na innym komputerze.
 * **`🔄 Przywróć bazę z pliku (.db)`** – pozwala odtworzyć dane z wcześniej wykonanej kopii. Można przywracać kopie wykonane w tym programie oraz stare, niezaszyfrowane kopie ze starszych wersji.
 
-### 2.11. Użytkownicy, hasła i kod awaryjny
+### 2.11. Użytkownicy, uprawnienia, hasła i kod awaryjny
+Program rozróżnia dwie role:
+
+| Rola | Uprawnienia |
+|---|---|
+| **Administrator** | Wszystko, w tym zarządzanie użytkownikami i kodem awaryjnym |
+| **Użytkownik** | Praca z telefonami, protokołami, importem/eksportem i kopiami zapasowymi oraz zmiana własnego hasła |
+
+Konto utworzone przy pierwszym uruchomieniu jest kontem administratora. Przy nazwie zalogowanej osoby na górnym pasku wyświetla się dopisek *(administrator)*.
+
 W rozwijanym menu **`⚙️ Opcje bazy ▾`**:
-* **`🔑 Zmień hasło`** – zmiana hasła zalogowanego użytkownika (wymaga podania obecnego hasła).
-* **`👥 Dodaj użytkownika`** – tworzy nowe konto z dostępem do bazy.
-* **`🚫 Usuń użytkownika`** – blokuje logowanie wybranemu użytkownikowi (nie można usunąć samego siebie).
-* **`🆘 Wygeneruj nowy kod awaryjny`** – tworzy nowy kod awaryjny; dotychczasowy przestaje działać. Użyj tej opcji, jeśli kod został zgubiony lub mógł trafić w niepowołane ręce.
+* **`🔑 Zmień hasło`** – zmiana hasła zalogowanego użytkownika (wymaga podania obecnego hasła). Dostępne dla wszystkich.
+* **`👥 Dodaj użytkownika (administrator)`** – tworzy nowe konto; przy dodawaniu wybierasz uprawnienia (*Użytkownik* lub *Administrator*).
+* **`🚫 Usuń użytkownika (administrator)`** – blokuje logowanie wybranemu użytkownikowi (nie można usunąć samego siebie).
+* **`🆘 Wygeneruj nowy kod awaryjny (administrator)`** – tworzy nowy kod awaryjny; dotychczasowy przestaje działać. Użyj tej opcji, jeśli kod został zgubiony lub mógł trafić w niepowołane ręce.
+
+Dla zwykłych użytkowników opcje administratora są wyszarzone.
+
+> **Aktualizacja ze starszej wersji:** konta utworzone przed wprowadzeniem uprawnień otrzymują przy najbliższym logowaniu rolę **administratora**, aby nikt nie utracił dostępu. Jeśli któraś z tych osób ma być zwykłym użytkownikiem, administrator powinien usunąć jej konto i dodać je ponownie z rolą *Użytkownik*.
+
+> Uprawnienia są zapisane w pliku `keys.json` w sposób chroniony kryptograficznie – ręczna zmiana roli w pliku (np. w Notatniku) sprawia, że logowanie na to konto przestaje działać.
 
 ---
 
@@ -183,7 +199,7 @@ Data is **encrypted at rest** and access requires **signing in**.
 * Double-click the executable to start the application.
 
 ### 1.2. First Run – Administrator Account
-On first launch the application asks you to create an **administrator account**:
+On first launch the application asks you to create an **administrator account** (only administrators can later add and remove users – see section 2.11):
 1. Enter a login and a password (at least 8 characters), then repeat the password.
 2. Click **`Utwórz konto`** (*Create account*).
 3. A one-time **recovery code** is displayed (e.g. `5N8C-QXRD-QA6W-9RV8-DHNZ-M8CS`). **Write it down and keep it somewhere safe.** It lets you set a new password if it is forgotten. The window can be closed only after confirming the code has been saved.
@@ -193,6 +209,7 @@ On first launch the application asks you to create an **administrator account**:
 ### 1.3. Signing In
 * Enter your **login** and **password** and click **`Zaloguj`** (*Sign in*) or press Enter. Logins are case-insensitive.
 * The signed-in user is shown on the top bar (👤).
+* **Signing out:** click **`🚪 Wyloguj`** (*Sign out*) next to the user name (also available under **`⚙️ Opcje bazy ▾`**). Data is cleared from the screen, the database is locked and the sign-in window appears – you can sign in again, also as a different user. Closing the sign-in window exits the application. Sign out whenever you leave your computer.
 
 ### 1.4. Forgotten Password
 1. In the sign-in window click **`Nie pamiętam hasła`** (*Forgot password*).
@@ -277,12 +294,27 @@ Under **`⚙️ Opcje bazy ▾`**:
 * **`💾 Utwórz kopię zapasową bazy (.db)`** – exports an encrypted point-in-time snapshot of the database, together with a key file saved next to it (`<name>.keys.json`). **Keep both files together** – the backup cannot be opened on another computer without the key file.
 * **`🔄 Przywróć bazę z pliku (.db)`** – restores all database tables from a backup created by this application, or from an old unencrypted backup made by a previous version.
 
-### 2.11. Users, Passwords & Recovery Code
+### 2.11. Users, Roles, Passwords & Recovery Code
+There are two roles:
+
+| Role | Permissions |
+|---|---|
+| **Administrator** | Everything, including user and recovery code management |
+| **User** | Devices, protocols, import/export, backups and changing their own password |
+
+The account created on first run is an administrator. Administrators are marked *(administrator)* next to the user name on the top bar.
+
 Under **`⚙️ Opcje bazy ▾`**:
-* **`🔑 Zmień hasło`** – change the signed-in user's password (current password required).
-* **`👥 Dodaj użytkownika`** – create a new account with access to the database.
-* **`🚫 Usuń użytkownika`** – revoke sign-in for another user (you cannot remove yourself).
-* **`🆘 Wygeneruj nowy kod awaryjny`** – generate a new recovery code; the previous one stops working.
+* **`🔑 Zmień hasło`** – change the signed-in user's password (current password required). Available to everyone.
+* **`👥 Dodaj użytkownika (administrator)`** – create a new account and choose its role (*Użytkownik* / *Administrator*).
+* **`🚫 Usuń użytkownika (administrator)`** – revoke sign-in for another user (you cannot remove yourself).
+* **`🆘 Wygeneruj nowy kod awaryjny (administrator)`** – generate a new recovery code; the previous one stops working.
+
+Administrator options are greyed out for regular users.
+
+> **Upgrading from an older version:** accounts created before roles were introduced become **administrators** on their next sign-in, so nobody loses access. To make such a person a regular user, an administrator should remove the account and add it again with the *Użytkownik* role.
+
+> Roles are cryptographically bound to each entry in `keys.json` – editing a role by hand (e.g. in Notepad) makes sign-in to that account fail.
 
 ---
 
