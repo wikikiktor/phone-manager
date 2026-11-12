@@ -218,9 +218,14 @@ class PhoneDatabaseApp(tk.Tk):
         self._phone_sort = SortState()
         self._history_sort = SortState()
         self._warning_items: set[str] = set()
+        self._in_trash = False
+        self._prompting = False
 
         db.init_db()
         self._build_ui()
+        self._form_snapshot = self._collect_form_data()
+        self._bind_shortcuts()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.search_var.trace_add("write", lambda *_args: self.load_phone_list())
         self.load_phone_list()
         self.deiconify()
@@ -409,7 +414,7 @@ class PhoneDatabaseApp(tk.Tk):
         actions = ttk.Frame(top_row)
         actions.pack(side=tk.RIGHT)
         for text, style, command in (
-            ("+ Nowy telefon", "Primary.TButton", self.prepare_new_phone),
+            ("+ Nowy telefon", "Primary.TButton", self.start_new_phone),
             ("📋 Protokół", "Secondary.TButton", self.open_protocol_dialog),
             ("📊 Eksport Excel", "Secondary.TButton", self.export_to_excel),
             ("📥 Import Excel", "Secondary.TButton", self.open_excel_import),
@@ -645,6 +650,61 @@ class PhoneDatabaseApp(tk.Tk):
         self.history_tree.bind("<Double-1>", lambda _event: self.open_add_note_popup())
 
     # =======================================================================
+    # Skróty klawiszowe i niezapisane zmiany
+    # =======================================================================
+
+    def _bind_shortcuts(self) -> None:
+        for sequence in ("<Control-s>", "<Control-S>"):
+            self.bind(sequence, self._on_save_shortcut)
+        for sequence in ("<Control-f>", "<Control-F>"):
+            self.bind(sequence, self._on_search_shortcut)
+
+    def _on_save_shortcut(self, _event: Optional[tk.Event] = None) -> str:
+        if not self._in_trash:
+            self.save_phone()
+        return "break"
+
+    def _on_search_shortcut(self, _event: Optional[tk.Event] = None) -> str:
+        self.search_entry.focus_set()
+        self.search_entry.selection_range(0, tk.END)
+        self.search_entry.icursor(tk.END)
+        return "break"
+
+    def _has_unsaved_changes(self) -> bool:
+        if self._in_trash:
+            return False
+        return self._collect_form_data() != self._form_snapshot
+
+    def _confirm_unsaved_changes(self) -> bool:
+        """Pyta o zapis niezapisanych zmian; ``False`` oznacza przerwanie akcji."""
+        if not self._has_unsaved_changes():
+            return True
+
+        self._prompting = True
+        try:
+            answer = messagebox.askyesnocancel(
+                "Niezapisane zmiany",
+                "Masz niezapisane zmiany w formularzu telefonu.\n\nCzy chcesz je zapisać?",
+                icon=messagebox.WARNING,
+                parent=self,
+            )
+            if answer is None:
+                return False
+            if answer:
+                return self.save_phone()
+            return True
+        finally:
+            self._prompting = False
+
+    def _on_close(self) -> None:
+        if self._confirm_unsaved_changes():
+            self.destroy()
+
+    def start_new_phone(self) -> None:
+        if self._confirm_unsaved_changes():
+            self.prepare_new_phone()
+
+    # =======================================================================
     # Lista telefonów
     # =======================================================================
 
@@ -682,10 +742,28 @@ class PhoneDatabaseApp(tk.Tk):
 
     def on_phone_select(self, _event: Optional[tk.Event] = None) -> None:
         selection = self.tree.selection()
-        if not selection:
+        if not selection or self._prompting:
             return
-        self.selected_phone_id = int(selection[0])
+
+        phone_id = int(selection[0])
+        if phone_id == self.selected_phone_id:
+            self._update_selection_colors()
+            return
+
+        if not self._confirm_unsaved_changes():
+            self._restore_list_selection()
+            return
+
+        self.selected_phone_id = phone_id
+        self._select_phone_in_list(phone_id)
         self.refresh_selected_details()
+
+    def _restore_list_selection(self) -> None:
+        item = "" if self.selected_phone_id is None else str(self.selected_phone_id)
+        if item and self.tree.exists(item):
+            self.tree.selection_set(item)
+        else:
+            self.tree.selection_remove(*self.tree.selection())
 
     def _select_phone_in_list(self, phone_id: int) -> None:
         item = str(phone_id)
@@ -703,8 +781,12 @@ class PhoneDatabaseApp(tk.Tk):
         self.search_entry.focus_set()
 
     def on_toggle_trash_view(self) -> None:
+        if not self._confirm_unsaved_changes():
+            self.show_deleted_var.set(self._in_trash)
+            return
+        self._in_trash = self.show_deleted_var.get()
         self.prepare_new_phone()
-        self._layout_form_buttons(in_trash=self.show_deleted_var.get())
+        self._layout_form_buttons(in_trash=self._in_trash)
         self.load_phone_list()
 
     # =======================================================================
@@ -735,6 +817,7 @@ class PhoneDatabaseApp(tk.Tk):
         }
         for option, variable in self.equipment_vars.items():
             variable.set(option in equipment)
+        self._form_snapshot = self._collect_form_data()
 
     def _collect_form_data(self) -> dict[str, Any]:
         data: dict[str, Any] = {key: widget.get().strip() for key, widget in self.entries.items()}
@@ -777,6 +860,7 @@ class PhoneDatabaseApp(tk.Tk):
         for variable in self.equipment_vars.values():
             variable.set(False)
 
+        self._form_snapshot = self._collect_form_data()
         self._update_warning_button(False)
         self._update_imei_style()
         self.lbl_editing_status.configure(text=NEW_PHONE_STATUS)
@@ -804,7 +888,7 @@ class PhoneDatabaseApp(tk.Tk):
         self.prepare_new_phone()
         self.load_phone_list()
 
-    def save_phone(self) -> None:
+    def save_phone(self) -> bool:
         self._format_phone_entry()
         data = self._collect_form_data()
 
@@ -812,7 +896,7 @@ class PhoneDatabaseApp(tk.Tk):
             messagebox.showwarning(
                 "Wymagane pola", "Pola 'Model tel' oraz 'Nr telefonu' są obowiązkowe.", parent=self
             )
-            return
+            return False
 
         current_row = (
             db.get_phone_by_id(self.selected_phone_id)
@@ -821,7 +905,7 @@ class PhoneDatabaseApp(tk.Tk):
         )
         current = dict(zip(db.PHONE_FIELDS, current_row)) if current_row else {}
         if not self._confirm_identifiers(data, current):
-            return
+            return False
 
         if self.selected_phone_id is None:
             self.selected_phone_id = db.insert_phone(data)
@@ -835,6 +919,7 @@ class PhoneDatabaseApp(tk.Tk):
         self.load_phone_list()
         self._select_phone_in_list(self.selected_phone_id)
         self.refresh_selected_details()
+        return True
 
     def _confirm_identifiers(self, data: dict[str, Any], current: dict[str, Any]) -> bool:
         imei_changed = db.normalize_imei(current.get("imei")) != data["imei"]
@@ -919,7 +1004,7 @@ class PhoneDatabaseApp(tk.Tk):
 
         self.load_phone_list()
         self._select_phone_in_list(self.selected_phone_id)
-        self.refresh_selected_details()
+        self._update_selection_colors()
 
     # =======================================================================
     # Historia zdarzeń
@@ -953,7 +1038,7 @@ class PhoneDatabaseApp(tk.Tk):
     def open_add_event_popup(self) -> None:
         if not self._require_selected_phone("Wybierz lub zapisz telefon przed dodaniem zdarzenia."):
             return
-        AddEventDialog(self, self.selected_phone_id, on_save_callback=self.refresh_selected_details)
+        AddEventDialog(self, self.selected_phone_id, on_save_callback=self._load_history)
 
     def open_add_note_popup(self) -> None:
         selection = self.history_tree.selection()
@@ -976,7 +1061,7 @@ class PhoneDatabaseApp(tk.Tk):
         )
 
     def _after_note_saved(self, item: str) -> None:
-        self.refresh_selected_details()
+        self._load_history()
         if self.history_tree.exists(item):
             self.history_tree.selection_set(item)
             self.btn_add_note.pack(side=tk.RIGHT, padx=(0, 6))
@@ -994,11 +1079,14 @@ class PhoneDatabaseApp(tk.Tk):
             self.db_menu.grab_release()
 
     def logout(self) -> None:
+        if not self._confirm_unsaved_changes():
+            return
         self._close_child_windows()
         self.search_var.set("")
         self.only_damaged_var.set(False)
         if self.show_deleted_var.get():
             self.show_deleted_var.set(False)
+            self._in_trash = False
             self._layout_form_buttons(in_trash=False)
         self.prepare_new_phone()
         self.tree.delete(*self.tree.get_children())
