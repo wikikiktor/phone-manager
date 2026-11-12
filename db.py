@@ -39,6 +39,9 @@ DATETIME_FORMAT = "%Y-%m-%d %H:%M"
 DEFAULT_BATTERY_STATE = "Brak informacji"
 TRUTHY_STRINGS = frozenset({"tak", "1", "true", "t", "x"})
 
+_PHONE_LIKE_QUERY = re.compile(r"[\d\s()+\-]+")
+_SEARCH_TEXT_COLUMNS = ("nr_tel", "osoba_uzytkujaca", "model", "imei")
+
 PHONE_FIELDS: tuple[str, ...] = (
     "model",
     "nr_tel",
@@ -546,37 +549,55 @@ def init_db() -> None:
 # Odczyt danych
 # ---------------------------------------------------------------------------
 
+def _sql_lower(value: Any) -> str:
+    return "" if value is None else str(value).lower()
+
+
+def _sql_digits(value: Any) -> str:
+    return "" if value is None else re.sub(r"\D", "", str(value))
+
+
+def _like_pattern(text: str) -> str:
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
 
 def search_phones(query_str: str, show_deleted: bool = False, only_damaged: bool = False) -> list[tuple]:
-    pattern = f"%{query_str}%"
-    digits = re.sub(r"\D", "", query_str)
-    digits_pattern = f"%{digits}%" if digits else pattern
+    query = query_str.strip()
+    conditions: list[str] = []
+    params: list[Any] = []
+
+    if query:
+        text_pattern = _like_pattern(query.lower())
+        for column in _SEARCH_TEXT_COLUMNS:
+            conditions.append(f"PL_LOWER({column}) LIKE ? ESCAPE '\\'")
+            params.append(text_pattern)
+
+        digits = _sql_digits(query)
+        if digits and _PHONE_LIKE_QUERY.fullmatch(query):
+            variants = {digits}
+            if digits.startswith("48") and (query.startswith("+") or len(digits) == 11):
+                variants.add(digits[2:])
+            for variant in sorted(v for v in variants if v):
+                conditions.append("DIGITS(nr_tel) LIKE ?")
+                params.append(f"%{variant}%")
+            conditions.append("DIGITS(imei) LIKE ?")
+            params.append(f"%{digits}%")
+
+    where = f"({' OR '.join(conditions)}) AND " if conditions else ""
 
     with _cursor() as cursor:
+        cursor.connection.create_function("PL_LOWER", 1, _sql_lower)
+        cursor.connection.create_function("DIGITS", 1, _sql_digits)
         cursor.execute(
-            """
+            f"""
             SELECT id, nr_tel, osoba_uzytkujaca, model, COALESCE(czy_uszkodzony, 0)
             FROM telefony
-            WHERE (
-                   nr_tel LIKE ?
-                OR REPLACE(nr_tel, '-', '') LIKE ?
-                OR osoba_uzytkujaca LIKE ?
-                OR model LIKE ?
-                OR imei LIKE ?
-            )
-            AND czy_usuniety = ?
+            WHERE {where}COALESCE(czy_usuniety, 0) = ?
             AND (? = 0 OR COALESCE(czy_uszkodzony, 0) = 1)
             ORDER BY id DESC
             """,
-            (
-                pattern,
-                digits_pattern,
-                pattern,
-                pattern,
-                pattern,
-                int(show_deleted),
-                int(only_damaged),
-            ),
+            (*params, int(show_deleted), int(only_damaged)),
         )
         return cursor.fetchall()
 
@@ -604,7 +625,7 @@ def get_phone_history(phone_id: int) -> list[tuple]:
 def get_phones_count(show_deleted: bool = False) -> int:
     with _cursor() as cursor:
         cursor.execute(
-            "SELECT COUNT(*) FROM telefony WHERE czy_usuniety = ?",
+            "SELECT COUNT(*) FROM telefony WHERE COALESCE(czy_usuniety, 0) = ?",
             (int(show_deleted),),
         )
         return cursor.fetchone()[0]
@@ -737,7 +758,7 @@ def _normalize_import_record(data: Mapping[str, Any]) -> dict[str, Any] | None:
 
 @dataclass
 class ImportResult:
-    phone: int = 0
+    phones: int = 0
     history: int = 0
     skipped_duplicates: list[str] = dataclass_field(default_factory=list)
     invalid_imei: list[str] = dataclass_field(default_factory=list)
@@ -847,6 +868,13 @@ def _style_sheet(
     ws.auto_filter.ref = ws.dimensions
 
 
+def _append_row(ws: Worksheet, values: Iterable[Any]) -> None:
+    ws.append(list(values))
+    for cell in ws[ws.max_row]:
+        if isinstance(cell.value, str) and cell.value.startswith("="):
+            cell.data_type = "s"
+
+
 def _autofit_columns(ws: Worksheet) -> None:
     for column in ws.columns:
         longest = max((len(str(cell.value)) for cell in column if cell.value is not None), default=0)
@@ -897,7 +925,7 @@ def export_to_excel(file_path: str | Path, phone_ids: Iterable[int] | None = Non
         values = list(row)
         for index in flag_indexes:
             values[index] = "Tak" if values[index] else "Nie"
-        ws_phones.append(values)
+        _append_row(ws_phones, values)
     _style_sheet(
         ws_phones, _PHONES_HEADER_FILL, len(_PHONES_SHEET_HEADERS), _PHONES_CENTERED_COLUMNS
     )
@@ -905,7 +933,7 @@ def export_to_excel(file_path: str | Path, phone_ids: Iterable[int] | None = Non
     ws_history = wb.create_sheet(title="Historia zdarzeń")
     ws_history.append(_HISTORY_SHEET_HEADERS)
     for row in history_rows:
-        ws_history.append(list(row))
+        _append_row(ws_history, row)
     _style_sheet(
         ws_history, _HISTORY_HEADER_FILL, len(_HISTORY_SHEET_HEADERS), _HISTORY_CENTERED_COLUMNS
     )

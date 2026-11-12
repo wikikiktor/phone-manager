@@ -201,6 +201,7 @@ class ExcelImportDialog(BaseDialog):
         ("czy_protokol", "Protokół zdawczo-odbiorczy"),
         ("wyposazenie", "Wyposażenie dodatkowe"),
         ("stan_baterii", "Stan baterii"),
+        ("czy_uszkodzony", "Czy uszkodzony"),
     )
     REQUIRED_FIELDS = ("model", "nr_tel")
 
