@@ -11,6 +11,7 @@ import security
 from dialogs import FONT_FAMILY, FONT_LABEL, BaseDialog
 
 ERROR_COLOR = "#B91C1C"
+HINT_COLOR = "#64748B"
 FONT_CODE = ("Consolas", 13, "bold")
 
 
@@ -62,11 +63,23 @@ def _validate_username(username: str, parent: tk.Misc) -> bool:
     return True
 
 
+def _add_password_hint(parent: tk.Misc, row: int) -> None:
+    ttk.Label(
+        parent,
+        text=f"Hasło: {security.PASSWORD_RULES}",
+        font=(FONT_FAMILY, 8, "italic"),
+        foreground=HINT_COLOR,
+        wraplength=300,
+        justify=tk.LEFT,
+    ).grid(row=row, column=1, sticky=tk.W, pady=(0, 4))
+
+
 def _validate_new_password(password: str, repeated: str, parent: tk.Misc) -> bool:
-    if len(password) < security.MIN_PASSWORD_LENGTH:
+    problems = security.password_problems(password)
+    if problems:
         messagebox.showwarning(
-            "Za krótkie hasło",
-            f"Hasło musi mieć co najmniej {security.MIN_PASSWORD_LENGTH} znaków.",
+            "Za słabe hasło",
+            "Hasło musi zawierać:\n" + "\n".join(f" • {problem}" for problem in problems),
             parent=parent,
         )
         return False
@@ -200,9 +213,10 @@ class SetupDialog(_StartupDialog):
         self.username_entry = _add_field(self.body, 2, "Login administratora:")
         self.password_entry = _add_field(self.body, 3, "Hasło:", secret=True)
         self.repeat_entry = _add_field(self.body, 4, "Powtórz hasło:", secret=True)
+        _add_password_hint(self.body, 5)
 
         self._add_buttons(
-            5,
+            6,
             [
                 ("Anuluj", "Secondary.TButton", self.destroy),
                 ("Utwórz konto", "Primary.TButton", self.create_account),
@@ -372,6 +386,7 @@ class RecoveryDialog(BaseDialog):
         self.code_entry = _add_field(form, 1, "Kod awaryjny:")
         self.password_entry = _add_field(form, 2, "Nowe hasło:", secret=True)
         self.repeat_entry = _add_field(form, 3, "Powtórz hasło:", secret=True)
+        _add_password_hint(form, 4)
 
         self._add_button_bar("Ustaw nowe hasło", self.reset_password)
         self.username_entry.focus_set()
@@ -423,6 +438,7 @@ class ChangePasswordDialog(BaseDialog):
         self.old_entry = _add_field(form, 1, "Obecne hasło:", secret=True)
         self.new_entry = _add_field(form, 2, "Nowe hasło:", secret=True)
         self.repeat_entry = _add_field(form, 3, "Powtórz nowe hasło:", secret=True)
+        _add_password_hint(form, 4)
 
         self._add_button_bar("💾 Zmień hasło", self.change_password)
         self.old_entry.focus_set()
@@ -455,14 +471,15 @@ class AddUserDialog(BaseDialog):
         self.username_entry = _add_field(form, 0, "Login:")
         self.password_entry = _add_field(form, 1, "Hasło:", secret=True)
         self.repeat_entry = _add_field(form, 2, "Powtórz hasło:", secret=True)
+        _add_password_hint(form, 3)
 
-        ttk.Label(form, text="Uprawnienia:").grid(row=3, column=0, sticky=tk.W, pady=5, padx=(0, 10))
+        ttk.Label(form, text="Uprawnienia:").grid(row=4, column=0, sticky=tk.W, pady=5, padx=(0, 10))
         self._roles = list(security.ROLE_LABELS)  
         self.role_combo = ttk.Combobox(
             form, values=[security.ROLE_LABELS[r] for r in self._roles], state="readonly"
         )
         self.role_combo.current(self._roles.index(security.ROLE_USER))
-        self.role_combo.grid(row=3, column=1, sticky=tk.EW, pady=5)
+        self.role_combo.grid(row=4, column=1, sticky=tk.EW, pady=5)
         self._add_button_bar("👥 Dodaj", self.add_user)
         self.username_entry.focus_set()
         self._show(420, 250)

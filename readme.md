@@ -24,7 +24,7 @@ Aplikacja **nie wymaga instalacji** środowiska deweloperskiego, żadnych biblio
 
 ### 1.2. Pierwsze uruchomienie – konto administratora
 Przy pierwszym uruchomieniu program poprosi o utworzenie **konta administratora** (tylko administrator może później dodawać i usuwać użytkowników – zob. pkt 2.11):
-1. Wpisz login oraz hasło i powtórz hasło. Program wymaga co najmniej 3 znaków, ale zalecamy hasło dłuższe niż 8 znaków – im dłuższe, tym trudniej je odgadnąć.
+1. Wpisz login oraz hasło i powtórz hasło. Hasło musi mieć **co najmniej 6 znaków, w tym co najmniej 1 wielką literę i 1 znak specjalny** (np. `! @ # $ % & * ?`). Zalecamy dłuższe hasła – im dłuższe, tym trudniej je odgadnąć.
 2. Kliknij **`Utwórz konto`** (lub naciśnij Enter).
 3. Program wyświetli jednorazowo **kod awaryjny** (np. `5N8C-QXRD-QA6W-9RV8-DHNZ-M8CS`). **Zapisz go i przechowuj w bezpiecznym miejscu** (np. na papierze w sejfie). Kod pozwala ustawić nowe hasło, gdy zostanie zapomniane. Kod można skopiować przyciskiem **`📋 Kopiuj do schowka`**. Okno zamkniesz dopiero po zaznaczeniu pola *„Zapisałem kod awaryjny w bezpiecznym miejscu”*.
 
@@ -182,6 +182,8 @@ W rozwijanym menu **`⚙️ Opcje bazy ▾`**:
 
 Dla zwykłych użytkowników opcje administratora są wyszarzone.
 
+**Wymagania dotyczące hasła** obowiązują przy każdym ustawianiu nowego hasła – przy tworzeniu konta, zmianie hasła i odzyskiwaniu hasła kodem awaryjnym: co najmniej 6 znaków, w tym co najmniej 1 wielka litera i 1 znak specjalny (np. `! @ # $ % & * ?`). Znakiem specjalnym jest każdy znak, który nie jest literą, cyfrą ani spacją. Wymagania są podane w każdym z tych okien. Hasła ustawione wcześniej nadal działają.
+
 > **Aktualizacja ze starszej wersji:** konta utworzone przed wprowadzeniem uprawnień otrzymują przy najbliższym logowaniu rolę **administratora**, aby nikt nie utracił dostępu. Jeśli któraś z tych osób ma być zwykłym użytkownikiem, administrator powinien usunąć jej konto i dodać je ponownie z rolą *Użytkownik*.
 
 > Uprawnienia są zapisane w pliku `keys.json` w sposób chroniony kryptograficznie – ręczna zmiana roli w pliku (np. w Notatniku) sprawia, że logowanie na to konto przestaje działać.
@@ -248,7 +250,7 @@ Data is **encrypted at rest** and access requires **signing in**.
 
 ### 1.2. First Run – Administrator Account
 On first launch the application asks you to create an **administrator account** (only administrators can later add and remove users – see section 2.11):
-1. Enter a login and a password, then repeat the password. At least 3 characters are required, but a password longer than 8 characters is recommended – the longer, the harder to guess.
+1. Enter a login and a password, then repeat the password. The password must have **at least 6 characters, including at least 1 uppercase letter and 1 special character** (e.g. `! @ # $ % & * ?`). Longer passwords are recommended – the longer, the harder to guess.
 2. Click **`Utwórz konto`** (*Create account*) or press Enter.
 3. A one-time **recovery code** is displayed (e.g. `5N8C-QXRD-QA6W-9RV8-DHNZ-M8CS`). **Write it down and keep it somewhere safe.** It lets you set a new password if it is forgotten. The window can be closed only after confirming the code has been saved.
 
@@ -381,6 +383,8 @@ Under **`⚙️ Opcje bazy ▾`**:
 * **`🆘 Wygeneruj nowy kod awaryjny (administrator)`** – generate a new recovery code; the previous one stops working.
 
 Administrator options are greyed out for regular users.
+
+**Password requirements** apply whenever a new password is set – when creating an account, changing a password or resetting it with the recovery code: at least 6 characters, including at least 1 uppercase letter and 1 special character (e.g. `! @ # $ % & * ?`). A special character is any character that is not a letter, a digit or a space. The requirements are shown in each of these windows. Passwords set earlier keep working.
 
 > **Upgrading from an older version:** accounts created before roles were introduced become **administrators** on their next sign-in, so nobody loses access. To make such a person a regular user, an administrator should remove the account and add it again with the *Użytkownik* role.
 

@@ -17,7 +17,12 @@ _FILE_VERSION = 1
 _LOCK_RETRY_DELAYS = (0.1, 0.25, 0.5, 1.0, 2.0)
 
 RECOVERY_USER = "__awaryjny__"
-MIN_PASSWORD_LENGTH = 3
+MIN_PASSWORD_LENGTH = 6
+PASSWORD_SPECIAL_EXAMPLES = "! @ # $ % & * ?"
+PASSWORD_RULES = (
+    f"co najmniej {MIN_PASSWORD_LENGTH} znaków, w tym wielka litera "
+    f"i znak specjalny (np. {PASSWORD_SPECIAL_EXAMPLES})"
+)
 
 ROLE_ADMIN = "admin"
 ROLE_USER = "user"
@@ -62,6 +67,17 @@ def generate_recovery_code() -> str:
 
 def normalize_recovery_code(code: str) -> str:
     return "".join(char for char in code.upper() if char.isalnum())
+
+
+def password_problems(password: str) -> list[str]:
+    problems = []
+    if len(password) < MIN_PASSWORD_LENGTH:
+        problems.append(f"co najmniej {MIN_PASSWORD_LENGTH} znaków")
+    if not any(char.isupper() for char in password):
+        problems.append("co najmniej 1 wielką literę")
+    if not any(not char.isalnum() and not char.isspace() for char in password):
+        problems.append(f"co najmniej 1 znak specjalny (np. {PASSWORD_SPECIAL_EXAMPLES})")
+    return problems
 
 
 class KeyStore:
