@@ -538,21 +538,6 @@ def _ensure_column(cursor: sqlite3.Cursor, table: str, column: str, definition: 
         cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
-def _seed_sample_data(cursor: sqlite3.Cursor) -> None:
-    sample = {
-        "model": "Przykładowy Model",
-        "nr_tel": format_phone_number("123456789"),
-        "nr_sim": "SIM123456",
-        "imei": "IMEI123456789",
-        "nr_seryjny": "SERIAL123456",
-        "rodzaj": "Rodzaj1",
-        "osoba_uzytkujaca": "Użytkownik1",
-        "osoba_odpowiedzialna": "Odpowiedzialny1",
-    }
-    cursor.execute(_INSERT_PHONE_SQL, _phone_values(sample))
-    _insert_history(cursor, cursor.lastrowid, "Dodanie", "Telefon dodany do bazy danych")
-
-
 def init_db() -> None:
     with _cursor() as cursor:
         for statement in _SCHEMA:
@@ -562,8 +547,7 @@ def init_db() -> None:
             _ensure_column(cursor, table, column, definition)
 
         cursor.execute("SELECT COUNT(*) FROM telefony")
-        if cursor.fetchone()[0] == 0:
-            _seed_sample_data(cursor)
+
 
 
 # ---------------------------------------------------------------------------
