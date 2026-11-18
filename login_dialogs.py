@@ -219,6 +219,15 @@ class SetupDialog(_StartupDialog):
             return
         if not _validate_new_password(password, self.repeat_entry.get(), self):
             return
+        if self.keystore.is_initialized():
+            messagebox.showinfo(
+                "Program jest już skonfigurowany",
+                "Konto administratora zostało już utworzone w innym oknie programu.\n"
+                "Uruchom program ponownie i zaloguj się.",
+                parent=self,
+            )
+            self.destroy()
+            return
 
         master_key = security.generate_master_key()
         recovery_code = security.generate_recovery_code()

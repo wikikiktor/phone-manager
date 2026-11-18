@@ -219,13 +219,34 @@ def get_db_path() -> str:
 
 DB_NAME = get_db_path()
 KEYSTORE_PATH = str(Path(DB_NAME).with_name(KEYSTORE_FILENAME))
+INSTANCE_LOCK_PATH = str(Path(DB_NAME).with_name("baza_telefonow.lock"))
+_instance_lock: Any = None
+
+
+def acquire_instance_lock() -> bool:
+    global _instance_lock
+    if _instance_lock is not None:
+        return True
+    lock_file = open(INSTANCE_LOCK_PATH, "a+b")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            lock_file.seek(0)
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        lock_file.close()
+        return False
+    _instance_lock = lock_file
+    return True
 
 
 # ---------------------------------------------------------------------------
 # Szyfrowanie (SQLCipher)
 # ---------------------------------------------------------------------------
 
-# Klucz główny bazy - ustawiany po zalogowaniu (``unlock``), trzymany tylko w pamięci.
 _db_key: bytes | None = None
 
 
@@ -349,7 +370,7 @@ def _cursor() -> Iterator[sqlite3.Cursor]:
 
 
 def _now() -> str:
-    return datetime.now().strftime(DATETIME_FORMAT)  # noqa: DTZ005
+    return datetime.now().strftime(DATETIME_FORMAT)
 
 
 def _to_flag(value: Any) -> int:
@@ -982,14 +1003,40 @@ def backup_keys_path(backup_path: str | Path) -> Path:
     return path.with_name(path.stem + BACKUP_KEYS_SUFFIX)
 
 
-def backup_database(dest_path: str | Path) -> Path:
-    Path(dest_path).unlink(missing_ok=True)
-    with closing(get_connection()) as source, closing(
-        _connect_encrypted(dest_path, _db_key)
-    ) as target:
-        source.backup(target)
+class ProtectedFileError(ValueError):
+    pass
 
-    keys_copy = backup_keys_path(dest_path)
+
+def _is_program_file(path: str | Path) -> bool:
+    candidate = Path(path)
+    if not candidate.exists():
+        return False
+    return any(
+        Path(protected).exists() and os.path.samefile(candidate, protected)
+        for protected in (DB_NAME, KEYSTORE_PATH)
+    )
+
+
+def backup_database(dest_path: str | Path) -> Path:
+    if _is_program_file(dest_path):
+        raise ProtectedFileError(
+            "Nie można zapisać kopii w miejsce pliku bazy ani pliku kluczy programu.\n"
+            "Wybierz inny folder, np. Dokumenty, pendrive lub dysk sieciowy."
+        )
+    dest = Path(dest_path)
+    temporary = dest.with_name(dest.name + ".tmp")
+    _remove_quietly(temporary)
+    try:
+        with closing(get_connection()) as source, closing(
+            _connect_encrypted(temporary, _db_key)
+        ) as target:
+            source.backup(target)
+        _retry_if_locked(os.replace, temporary, dest)
+    except BaseException:
+        _remove_quietly(temporary)
+        raise
+
+    keys_copy = backup_keys_path(dest)
     shutil.copyfile(KEYSTORE_PATH, keys_copy)
     return keys_copy
 
@@ -997,6 +1044,10 @@ def backup_database(dest_path: str | Path) -> Path:
 def restore_database(backup_path: str | Path) -> None:
     if _db_key is None:
         raise RuntimeError("Baza jest zablokowana - najpierw się zaloguj.")
+    if _is_program_file(backup_path):
+        raise ProtectedFileError(
+            "Wybrany plik to bieżąca baza lub plik kluczy programu, a nie kopia zapasowa."
+        )
 
     temporary: Path | None = None
     source_path: str | Path = backup_path

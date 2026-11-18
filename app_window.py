@@ -196,6 +196,15 @@ class PhoneDatabaseApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.withdraw()
+        if not db.acquire_instance_lock():
+            messagebox.showinfo(
+                "Program jest już uruchomiony",
+                "Baza Telefonów jest już otwarta w innym oknie.\n"
+                "Sprawdź pasek zadań i przejdź do tamtego okna.",
+                parent=self,
+            )
+            self.destroy()
+            return
         self.title(APP_TITLE)
         self.geometry(WINDOW_SIZE)
         self.minsize(*WINDOW_MIN_SIZE)
@@ -1203,6 +1212,9 @@ class PhoneDatabaseApp(tk.Tk):
 
         try:
             keys_copy = db.backup_database(file_path)
+        except db.ProtectedFileError as error:
+            messagebox.showerror("Nieprawidłowe miejsce zapisu", str(error), parent=self)
+            return
         except PermissionError:
             messagebox.showerror(
                 "Błąd zapisu",
@@ -1241,6 +1253,9 @@ class PhoneDatabaseApp(tk.Tk):
 
         try:
             db.restore_database(file_path)
+        except db.ProtectedFileError as error:
+            messagebox.showerror("Nieprawidłowy plik", str(error), parent=self)
+            return
         except db.DatabaseError:
             messagebox.showerror(
                 "Błąd pliku",
