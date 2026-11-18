@@ -20,19 +20,22 @@ Aplikacja **nie wymaga instalacji** środowiska deweloperskiego, żadnych biblio
 * Pobierz plik `BazaTelefonow.exe`.
 * Umieść go w dowolnym wygodnym folderze (np. na Pulpicie lub w folderze Dokumenty).
 * Uruchom program dwuklikiem.
+* Na danym koncie Windows program może być otwarty tylko raz. Jeśli jest już uruchomiony, kolejna próba wyświetli komunikat **„Program jest już uruchomiony”** – przejdź wtedy do otwartego okna na pasku zadań.
 
 ### 1.2. Pierwsze uruchomienie – konto administratora
 Przy pierwszym uruchomieniu program poprosi o utworzenie **konta administratora** (tylko administrator może później dodawać i usuwać użytkowników – zob. pkt 2.11):
-1. Wpisz login oraz hasło (co najmniej 8 znaków) i powtórz hasło.
-2. Kliknij **`Utwórz konto`**.
+1. Wpisz login oraz hasło i powtórz hasło. Program wymaga co najmniej 3 znaków, ale zalecamy hasło dłuższe niż 8 znaków – im dłuższe, tym trudniej je odgadnąć.
+2. Kliknij **`Utwórz konto`** (lub naciśnij Enter).
 3. Program wyświetli jednorazowo **kod awaryjny** (np. `5N8C-QXRD-QA6W-9RV8-DHNZ-M8CS`). **Zapisz go i przechowuj w bezpiecznym miejscu** (np. na papierze w sejfie). Kod pozwala ustawić nowe hasło, gdy zostanie zapomniane. Kod można skopiować przyciskiem **`📋 Kopiuj do schowka`**. Okno zamkniesz dopiero po zaznaczeniu pola *„Zapisałem kod awaryjny w bezpiecznym miejscu”*.
 
 > **Aktualizacja ze starszej wersji:** jeśli program znajdzie istniejącą, niezaszyfrowaną bazę, zaszyfruje ją automatycznie podczas tworzenia konta administratora – wszystkie dane zostaną zachowane. Przed pierwszym uruchomieniem nowej wersji zalecamy zrobić zwykłą kopię pliku `telefony.db`.
 
+> **Nowa baza** zawiera jeden przykładowy telefon („Przykładowy Model”). Możesz go usunąć, gdy dodasz już własne urządzenia.
+
 ### 1.3. Logowanie
 * Przy każdym uruchomieniu wpisz **login** i **hasło**, a następnie kliknij **`Zaloguj`** (lub naciśnij Enter). Wielkość liter w loginie nie ma znaczenia.
-* Nazwa zalogowanego użytkownika jest widoczna w lewym górnym rogu, pod nazwą programu (👤).
-* **Wylogowanie:** kliknij **`🚪 Wyloguj`** obok nazwy użytkownika (lub wybierz tę opcję w menu **`⚙️ Opcje bazy ▾`**). Dane znikają z ekranu, baza zostaje zablokowana i pojawia się okno logowania – można zalogować się ponownie, także jako inny użytkownik. Zamknięcie okna logowania kończy pracę programu. Wylogowuj się, gdy odchodzisz od komputera.
+* Nazwa zalogowanej osoby jest widoczna w lewym górnym rogu, pod nazwą programu (👤). Przy koncie administratora wyświetla się dopisek *(administrator)*.
+* **Wylogowanie:** rozwiń menu **`⚙️ Opcje bazy ▾`** i wybierz **`🚪 Wyloguj`**. Dane znikają z ekranu, baza zostaje zablokowana i pojawia się okno logowania – można zalogować się ponownie, także jako inny użytkownik. Zamknięcie okna logowania kończy pracę programu. Wylogowuj się, gdy odchodzisz od komputera.
 
 ### 1.4. Nie pamiętam hasła
 1. W oknie logowania kliknij **`Nie pamiętam hasła`**.
@@ -54,8 +57,9 @@ Program przechowuje dane w profilu użytkownika, w folderze:
 |---|---|
 | `telefony.db` | Zaszyfrowana baza danych (SQLCipher, AES-256) |
 | `keys.json` | Klucz do bazy zaszyfrowany hasłami użytkowników i kodem awaryjnym |
+| `baza_telefonow.lock` | Plik pomocniczy, który zapobiega uruchomieniu programu dwa razy. Tworzy się sam – nie trzeba go kopiować ani usuwać. |
 
-> **Ważne:** Oba pliki są potrzebne do otwarcia danych. Nie usuwaj i nie przenoś pliku `keys.json` osobno – bez niego zaszyfrowanej bazy nie da się otworzyć.
+> **Ważne:** Do otwarcia danych potrzebne są oba pliki: `telefony.db` i `keys.json`. Nie usuwaj i nie przenoś pliku `keys.json` osobno – bez niego zaszyfrowanej bazy nie da się otworzyć.
 
 > **Wskazówka:** Nawet jeśli przeniesiesz lub podmienisz sam plik `.exe` na nowszą wersję, Twoje dane pozostaną nienaruszone w profilu systemowym.
 
@@ -71,7 +75,7 @@ Program przechowuje dane w profilu użytkownika, w folderze:
 3. Uzupełnij pozostałe dane wedle uznania: *Nr IMEI*, *Nr SIM*, *Nr seryjny*, *Osoba użytkująca*, *Osoba odpowiedzialna*, *Rodzaj użytkowania*.
 4. Zaznacz dołączone akcesoria w sekcji **Wyposażenie** (*Ładowarka*, *Etui*, *Kabel USB*, *Szkło ochronne*).
 5. Wybierz **Stan baterii** oraz opcjonalnie zaznacz **Wysłany protokół** (jeśli dokument został już odebrany).
-6. Kliknij zielony przycisk **`💾 Zapisz zmiany`**. Telefon pojawi się na liście po lewej stronie, a w jego historii zostanie odnotowany fakt dodania.
+6. Kliknij zielony przycisk **`💾 Zapisz zmiany`** (lub naciśnij **Ctrl+S**). Telefon pojawi się na liście po lewej stronie, a w jego historii zostanie odnotowany fakt dodania.
 
 **Kontrola poprawności danych:**
 * **IMEI** – program sprawdza, czy numer ma 15 cyfr i poprawną cyfrę kontrolną (algorytm Luhna), dzięki czemu wykrywa większość literówek. Niepoprawny IMEI podświetla pole na czerwono już podczas wpisywania, a przy zapisie program pyta, czy mimo to zapisać telefon. Spacje i myślniki (np. `49-015420-323751-8`) są usuwane automatycznie.
@@ -80,9 +84,13 @@ Program przechowuje dane w profilu użytkownika, w folderze:
 
 ### 2.2. Edycja i automatyczny rejestr zmian
 * Kliknięcie na dowolny telefon z listy po lewej stronie ładuje jego dane oraz historię zdarzeń.
-* Zmodyfikuj dowolne pole (np. zmiana użytkownika, numeru SIM, wymiana ładowarki) i kliknij **`💾 Zapisz zmiany`**.
+* Zmodyfikuj dowolne pole (np. zmiana użytkownika, numeru SIM, wymiana ładowarki) i kliknij **`💾 Zapisz zmiany`** (lub naciśnij **Ctrl+S**).
 * Program samoczynnie wykrywa różnice i rejestruje wpis w dzienniku zdarzeń (np. *Zmieniono Osoba użytkująca: 'Jan Kowalski' ➔ 'Anna Nowak'* wraz z dokładną datą i godziną).
-* Przycisk **`Wyczyść`** czyści formularz bez zapisywania zmian.
+* **Niezapisane zmiany:** jeśli zmienisz dane w formularzu, nie zapiszesz ich, a następnie wybierzesz inny telefon, klikniesz **`+ Nowy telefon`**, przełączysz widok kosza, wylogujesz się lub zamkniesz program – program zapyta, czy zapisać zmiany:
+  * **Tak** – zapisuje zmiany i kontynuuje,
+  * **Nie** – odrzuca zmiany i kontynuuje,
+  * **Anuluj** – wraca do formularza bez utraty wpisanych danych.
+* Przycisk **`Wyczyść`** czyści formularz **bez pytania** – niezapisane zmiany zostają odrzucone.
 
 ### 2.3. Dziennik zdarzeń, serwis i notatki
 W dolnej prawej części okna znajduje się dedykowana historia dla wybranego urządzenia:
@@ -90,7 +98,12 @@ W dolnej prawej części okna znajduje się dedykowana historia dla wybranego ur
 * **Notatki/uwagi:** Zaznacz wybrany wpis w historii i kliknij **`✏️ Edytuj uwagę`** (lub kliknij dwukrotnie dany wiersz), aby dopisać dodatkowe adnotacje (np. numer zgłoszenia serwisowego, koszt naprawy).
 
 ### 2.4. Wyszukiwarka i sortowanie
-* **Wyszukiwarka w czasie rzeczywistym:** Wpisz szukaną frazę w pole u góry. Program filtruje urządzenia po numerze telefonu (również wpisanym ciągiem bez spacji i myślników), modelu, nazwisku użytkownika oraz numerze IMEI. Licznik po prawej pokazuje, ile telefonów pasuje do wyszukiwania.
+* **Wyszukiwarka w czasie rzeczywistym:** Wpisz szukaną frazę w pole u góry (skrót **Ctrl+F** przenosi od razu do wyszukiwarki). Program przeszukuje numer telefonu, model, osobę użytkującą oraz numer IMEI:
+  * wielkość liter nie ma znaczenia – także w polskich literach (np. „łukasz” znajdzie „Łukasz”),
+  * numer telefonu można wpisać w dowolnym zapisie, np. `600700800`, `600 700 800` lub `+48 600-700-800`,
+  * numer SIM i numer seryjny nie są przeszukiwane.
+
+  Licznik po prawej pokazuje, ile telefonów pasuje do wyszukiwania.
 * **Przycisk `✕`:** Błyskawicznie czyści pole wyszukiwania.
 * **Filtr `⚠️ Tylko oznaczone`:** pokazuje wyłącznie telefony oznaczone jako uszkodzone (pkt 2.6). Działa razem z wyszukiwarką i widokiem kosza, a eksport do Excela obejmuje tylko widoczne telefony.
 * **Sortowanie:** Kliknij nagłówek kolumny na liście telefonów (*Nr telefonu*, *Użytkownik*, *Model*) lub w tabeli historii, aby posortować rekordy rosnąco lub malejąco (strzałki `▲` / `▼`). Sortowanie jest zachowywane po odświeżeniu listy.
@@ -100,11 +113,12 @@ W dolnej prawej części okna znajduje się dedykowana historia dla wybranego ur
 * **Podgląd kosza:** Zaznacz pole **`Pokaż kosz (usunięte)`** na górnym pasku.
 * **Przywracanie urządzenia:** W widoku kosza wybierz telefon i kliknij **`↩️ Przywróć telefon`**.
 * **Trwałe skasowanie z bazy:** W widoku kosza dostępny jest przycisk **`❌ Usuń trwale z bazy`** – bezpowrotnie usuwa urządzenie i całą jego historię z bazy danych.
+* W widoku kosza dane telefonu można tylko przeglądać – przycisk **`💾 Zapisz zmiany`** jest ukryty, a skrót Ctrl+S nie działa, więc zmiany wpisane w formularzu nie zostaną zapisane.
 
 ### 2.6. Oznaczanie telefonu jako uszkodzony (Flaga ostrzegawcza)
 * W przypadku awarii lub uszkodzenia sprzętu, wybierz telefon z listy i kliknij pomarańczowy przycisk **`⚠️ Oznacz telefon`**.
 * Urządzenie zostanie wyraźnie podświetlone na **czerwono** na głównej liście (również po sortowaniu), co pozwala na błyskawiczną identyfikację sprzętu wymagającego naprawy.
-* Po naprawie telefonu lub rozwiązaniu problemu wystarczy kliknąć przycisk **`✅ Odznacz telefon`**, aby przywrócić urządzeniu standardowy status.
+* Po naprawie telefonu lub rozwiązaniu problemu wystarczy kliknąć przycisk **`✅ Odznacz telefon`** (program poprosi o potwierdzenie), aby przywrócić urządzeniu standardowy status.
 
 ### 2.7. Dane firmy do protokołów
 Przed wydrukiem dokumentów ustaw dane pracodawcy:
@@ -128,8 +142,11 @@ Brakujące dane (np. numer seryjny) są w protokole zastępowane linią kropek d
   * *Telefony* – kompletna, ostylowana tabela aktualnie widocznych urządzeń z autofiltrem i zamrożonym nagłówkiem (kolumny *Protokół* i *Czy uszkodzony* jako *Tak/Nie*).
   * *Historia zdarzeń* – powiązany dziennik operacji i uwag.
 
+  Tekst zaczynający się od znaku „=” jest zapisywany jako zwykły tekst, więc Excel nie wykona go jako formuły.
+
   > Plik Excel **nie jest szyfrowany** – przechowuj go ostrożnie.
 * **Import z Excela:** Kliknij **`📥 Import Excel`** i wskaż plik `.xlsx` lub `.xlsm` (stary format `.xls` nie jest obsługiwany – zapisz go w Excelu jako `.xlsx`). Kreator pozwoli Ci łatwo dopasować kolumny z Twojego dotychczasowego arkusza do pól w programie. Jeśli plik posiada zakładkę *Historia zdarzeń*, przeniesie również wpisy historyczne.
+  * Kolumny *Protokół zdawczo-odbiorczy* i *Czy uszkodzony* rozpoznają wartość *Tak* (a także `1`, `x` lub `true`); każda inna wartość oznacza *Nie*. Plik wyeksportowany z programu można więc zaimportować z powrotem bez utraty tych oznaczeń.
   * Opcja **„Pomiń telefony, które już są w bazie”** (domyślnie włączona) pomija telefony, których numer lub IMEI jest już w bazie albo powtarza się w pliku – razem z ich historią. Dzięki temu ponowny import tego samego pliku nie tworzy kopii.
   * Po imporcie program pokazuje podsumowanie: liczbę dodanych telefonów, listę pominiętych duplikatów oraz telefony z niepoprawnym IMEI (zostają zaimportowane, ale warto je sprawdzić).
 
@@ -141,7 +158,11 @@ W rozwijanym menu **`⚙️ Opcje bazy ▾`**:
   backup_telefony_20261105_1200.keys.json
   ```
   **Przechowuj oba pliki razem** – bez pliku `.keys.json` kopii nie da się otworzyć na innym komputerze.
-* **`🔄 Przywróć bazę z pliku (.db)`** – pozwala odtworzyć dane z wcześniej wykonanej kopii. Można przywracać kopie wykonane w tym programie oraz stare, niezaszyfrowane kopie ze starszych wersji.
+* **`🔄 Przywróć bazę z pliku (.db)`** – pozwala odtworzyć dane z wcześniej wykonanej kopii (program poprosi o potwierdzenie, ponieważ bieżące dane zostaną zastąpione). Można przywracać kopie wykonane w tym programie oraz stare, niezaszyfrowane kopie ze starszych wersji.
+
+Zabezpieczenia:
+* Kopii nie można zapisać w miejsce plików samego programu (`telefony.db`, `keys.json`), a bazy nie można przywrócić z niej samej – program wyświetli komunikat i niczego nie zmieni.
+* Jeśli zapis kopii się nie powiedzie (np. po wyjęciu pendrive’a), wcześniejsza kopia o tej samej nazwie pozostaje nienaruszona.
 
 ### 2.11. Użytkownicy, uprawnienia, hasła i kod awaryjny
 Program rozróżnia dwie role:
@@ -151,7 +172,7 @@ Program rozróżnia dwie role:
 | **Administrator** | Wszystko, w tym zarządzanie użytkownikami i kodem awaryjnym |
 | **Użytkownik** | Praca z telefonami, protokołami, importem/eksportem i kopiami zapasowymi oraz zmiana własnego hasła |
 
-Konto utworzone przy pierwszym uruchomieniu jest kontem administratora. Przy nazwie zalogowanej osoby na górnym pasku wyświetla się dopisek *(administrator)*.
+Konto utworzone przy pierwszym uruchomieniu jest kontem administratora. Przy nazwie zalogowanej osoby (w lewym górnym rogu) wyświetla się dopisek *(administrator)*.
 
 W rozwijanym menu **`⚙️ Opcje bazy ▾`**:
 * **`🔑 Zmień hasło`** – zmiana hasła zalogowanego użytkownika (wymaga podania obecnego hasła). Dostępne dla wszystkich.
@@ -165,6 +186,16 @@ Dla zwykłych użytkowników opcje administratora są wyszarzone.
 
 > Uprawnienia są zapisane w pliku `keys.json` w sposób chroniony kryptograficznie – ręczna zmiana roli w pliku (np. w Notatniku) sprawia, że logowanie na to konto przestaje działać.
 
+### 2.12. Skróty klawiszowe
+
+| Skrót | Działanie |
+|---|---|
+| **Ctrl+S** | Zapisuje zmiany w formularzu telefonu (nie działa w widoku kosza) |
+| **Ctrl+F** | Przechodzi do wyszukiwarki i zaznacza jej zawartość |
+| **Enter** | W oknie logowania – loguje; w oknie pierwszego uruchomienia – tworzy konto |
+| **Esc** | Zamyka okno dialogowe; w oknie logowania i pierwszego uruchomienia – zamyka program |
+| **Dwuklik** na wpisie historii | Otwiera edycję uwagi do wpisu |
+
 ---
 
 ## 3. Rozwiązywanie częstych problemów
@@ -173,8 +204,16 @@ Dla zwykłych użytkowników opcje administratora są wyszarzone.
   Upewnij się, że plik o tej samej nazwie nie jest w tym momencie otwarty w programie Excel, Word lub Adobe Acrobat Reader. Zamknij otwarty dokument i spróbuj ponownie.
 * **„Nieprawidłowy login lub hasło”:**  
   Sprawdź, czy nie jest włączony Caps Lock. Jeśli nie pamiętasz hasła, użyj opcji **`Nie pamiętam hasła`** i kodu awaryjnego (pkt 1.4).
+* **„Program jest już uruchomiony”:**  
+  Program jest już otwarty – przejdź do jego okna na pasku zadań. Jeśli żadnego okna nie widać (np. program przestał odpowiadać), zakończ proces `BazaTelefonow.exe` w Menedżerze zadań i uruchom program ponownie.
+* **„Program jest już skonfigurowany” przy tworzeniu konta administratora:**  
+  Konto administratora zostało już utworzone w innym oknie programu. Uruchom program ponownie i zaloguj się tym kontem.
 * **„Plik bazy jest zablokowany” przy pierwszym uruchomieniu:**  
-  Plik bazy jest używany przez inny program. Zamknij programy, które mogą mieć otwarty plik `telefony.db` (np. DB Browser for SQLite lub drugie okno aplikacji) i kliknij **`Utwórz konto`** ponownie – dotychczasowa baza pozostaje nienaruszona. Jeśli problem się powtarza, dodaj folder `%APPDATA%\BazaTelefonow` do wyjątków programu antywirusowego.
+  Plik bazy jest używany przez inny program. Zamknij programy, które mogą mieć otwarty plik `telefony.db` (np. DB Browser for SQLite), i kliknij **`Utwórz konto`** ponownie – dotychczasowa baza pozostaje nienaruszona. Jeśli problem się powtarza, dodaj folder `%APPDATA%\BazaTelefonow` do wyjątków programu antywirusowego.
+* **„Nieprawidłowe miejsce zapisu” przy tworzeniu kopii zapasowej:**  
+  Wskazano plik bazy lub plik kluczy samego programu. Zapisz kopię w innym folderze, np. w Dokumentach, na pendrivie lub na dysku sieciowym.
+* **„Nieprawidłowy plik” przy przywracaniu bazy:**  
+  Wskazano bieżącą bazę programu zamiast pliku kopii zapasowej. Wybierz plik kopii (np. `backup_telefony_….db`).
 * **„Brak pliku kluczy” przy uruchomieniu:**  
   Plik `keys.json` został usunięty lub przeniesiony. Skopiuj plik `*.keys.json` z ostatniej kopii zapasowej do folderu `%APPDATA%\BazaTelefonow\` i zmień jego nazwę na `keys.json`.
 * **Przeniesienie programu na nowy komputer:**  
@@ -205,19 +244,22 @@ Data is **encrypted at rest** and access requires **signing in**.
 * Download `BazaTelefonow.exe`.
 * Place it in any directory (Desktop, Documents, or Shared Drive).
 * Double-click the executable to start the application.
+* Only one copy of the application can run at a time for a given Windows account. Starting it again shows **„Program jest już uruchomiony”** (*The program is already running*) – switch to the open window on the taskbar.
 
 ### 1.2. First Run – Administrator Account
 On first launch the application asks you to create an **administrator account** (only administrators can later add and remove users – see section 2.11):
-1. Enter a login and a password (at least 8 characters), then repeat the password.
-2. Click **`Utwórz konto`** (*Create account*).
+1. Enter a login and a password, then repeat the password. At least 3 characters are required, but a password longer than 8 characters is recommended – the longer, the harder to guess.
+2. Click **`Utwórz konto`** (*Create account*) or press Enter.
 3. A one-time **recovery code** is displayed (e.g. `5N8C-QXRD-QA6W-9RV8-DHNZ-M8CS`). **Write it down and keep it somewhere safe.** It lets you set a new password if it is forgotten. The window can be closed only after confirming the code has been saved.
 
 > **Upgrading from an older version:** an existing unencrypted database is encrypted automatically while the administrator account is being created – all data is preserved. Making a plain copy of `telefony.db` before the first run of the new version is recommended.
 
+> **A new database** contains one sample phone („Przykładowy Model”). You can delete it once you have added your own devices.
+
 ### 1.3. Signing In
 * Enter your **login** and **password** and click **`Zaloguj`** (*Sign in*) or press Enter. Logins are case-insensitive.
-* The signed-in user is shown in the top-left corner, below the application name (👤).
-* **Signing out:** click **`🚪 Wyloguj`** (*Sign out*) next to the user name (also available under **`⚙️ Opcje bazy ▾`**). Data is cleared from the screen, the database is locked and the sign-in window appears – you can sign in again, also as a different user. Closing the sign-in window exits the application. Sign out whenever you leave your computer.
+* The signed-in user is shown in the top-left corner, below the application name (👤). Administrators are marked *(administrator)*.
+* **Signing out:** open the **`⚙️ Opcje bazy ▾`** menu and choose **`🚪 Wyloguj`** (*Sign out*). Data is cleared from the screen, the database is locked and the sign-in window appears – you can sign in again, also as a different user. Closing the sign-in window exits the application. Sign out whenever you leave your computer.
 
 ### 1.4. Forgotten Password
 1. In the sign-in window click **`Nie pamiętam hasła`** (*Forgot password*).
@@ -239,8 +281,9 @@ All data is stored in your user profile:
 |---|---|
 | `telefony.db` | Encrypted database (SQLCipher, AES-256) |
 | `keys.json` | Database key, encrypted with each user's password and the recovery code |
+| `baza_telefonow.lock` | Helper file that prevents the application from running twice. Created automatically – no need to copy or delete it. |
 
-> **Important:** Both files are required to open the data. Never delete or move `keys.json` on its own.
+> **Important:** Both `telefony.db` and `keys.json` are required to open the data. Never delete or move `keys.json` on its own.
 
 ---
 
@@ -252,7 +295,7 @@ All data is stored in your user profile:
    * Phone numbers are formatted with standard hyphen notation automatically.
 3. Check bundled accessories (*Ładowarka / Charger*, *Etui / Case*, *Kabel USB*, *Szkło ochronne / Screen protector*).
 4. Select battery health condition and flag whether the signed protocol has been delivered.
-5. Click **`💾 Zapisz zmiany`** (*Save changes*).
+5. Click **`💾 Zapisz zmiany`** (*Save changes*) or press **Ctrl+S**.
 
 **Data checks:**
 * **IMEI** must have 15 digits and a valid check digit (Luhn algorithm). An invalid IMEI turns the field red while typing, and saving asks for confirmation. Spaces and dashes are removed automatically.
@@ -261,14 +304,19 @@ All data is stored in your user profile:
 
 ### 2.2. Editing & Automated Audit Trail
 * Select any record from the left-side list to view its properties and event log.
-* Modify values and click **`💾 Zapisz zmiany`**. The system detects changes and records an entry in the event log showing the previous and new values with timestamps.
+* Modify values and click **`💾 Zapisz zmiany`** (or press **Ctrl+S**). The system detects changes and records an entry in the event log showing the previous and new values with timestamps.
+* **Unsaved changes:** if you change the form without saving and then select another phone, click **`+ Nowy telefon`**, switch the trash view, sign out or close the application, you are asked whether to save the changes: **Tak** (*Yes*) saves them, **Nie** (*No*) discards them, **Anuluj** (*Cancel*) returns to the form without losing anything.
+* **`Wyczyść`** (*Clear*) empties the form **without asking** – unsaved changes are discarded.
 
 ### 2.3. Event Log & Notes
 * **Add Event:** Click **`+ Dodaj wpis`** (*+ Add Entry*) to log events (e.g. Service/Repairs, SIM card swaps, User reassignments).
 * **Notes:** Select an entry in the history table and click **`✏️ Edytuj uwagę`** (*Edit Note*) or double-click the row to add or edit notes.
 
 ### 2.4. Search & Sorting
-* **Live Search:** Instant filtering across phone numbers (with or without dashes), device models, assigned users and IMEI numbers.
+* **Live Search** (press **Ctrl+F** to jump to the search box) filters by phone number, device model, assigned user and IMEI:
+  * case-insensitive, including Polish letters (e.g. „łukasz” finds „Łukasz”),
+  * phone numbers can be typed in any notation, e.g. `600700800`, `600 700 800` or `+48 600-700-800`,
+  * SIM and serial numbers are not searched.
 * **Clear Search (`✕`):** Clears search query in one click.
 * **`⚠️ Tylko oznaczone`** (*Flagged only*) filter: shows only phones flagged as damaged. Works together with search and the trash view; Excel export includes only visible phones.
 * **Column Sorting:** Click any column header in the device list or history log to sort ascending or descending (`▲` / `▼`). Sorting is kept when the list refreshes.
@@ -278,11 +326,12 @@ All data is stored in your user profile:
 * **View Trash:** Check **`Pokaż kosz (usunięte)`** (*Show Trash*) on the top toolbar.
 * **Restore:** Select an item in trash and click **`↩️ Przywróć telefon`** (*Restore Phone*).
 * **Hard Delete:** Inside the trash view, click **`❌ Usuń trwale z bazy`** (*Delete Permanently*) to irreversibly purge the device and its history.
+* In the trash view device data is read-only in practice: the **`💾 Zapisz zmiany`** button is hidden and Ctrl+S does nothing, so changes typed into the form are not saved.
 
 ### 2.6. Flagging a Device as Damaged / Warning
 * If a device is broken, damaged, or needs attention, select it and click the orange **`⚠️ Oznacz telefon`** (*Mark Phone*) button.
 * The device row will be highlighted in **red** on the active list (also after sorting) for quick visual identification of equipment needing repair.
-* Once resolved, click **`✅ Odznacz telefon`** (*Unmark Phone*) to revert to the standard status.
+* Once resolved, click **`✅ Odznacz telefon`** (*Unmark Phone*, asks for confirmation) to revert to the standard status.
 
 ### 2.7. Employer Company Details
 1. Open the dropdown **`⚙️ Opcje bazy ▾`** and select **`🏢 Dane firmy / pracodawcy`**.
@@ -300,15 +349,20 @@ All data is stored in your user profile:
 Missing values (e.g. serial number) are replaced with a dotted line to be filled in by hand.
 
 ### 2.9. Excel Import & Export (.xlsx)
-* **Export to Excel:** Click **`📊 Eksport Excel`** to generate a styled workbook containing the visible devices and their event logs on separate sheets. **The Excel file is not encrypted** – store it with care.
+* **Export to Excel:** Click **`📊 Eksport Excel`** to generate a styled workbook containing the visible devices and their event logs on separate sheets. Text starting with „=” is stored as plain text, so Excel does not run it as a formula. **The Excel file is not encrypted** – store it with care.
 * **Import from Excel:** Click **`📥 Import Excel`** to launch the interactive column mapper. Supported formats: `.xlsx` and `.xlsm` (legacy `.xls` files must be re-saved as `.xlsx` first).
+  * The *Protokół zdawczo-odbiorczy* and *Czy uszkodzony* columns recognise *Tak* (*Yes*; also `1`, `x` or `true`); any other value means *Nie* (*No*). A file exported from the application can therefore be imported back without losing these flags.
   * **„Pomiń telefony, które już są w bazie”** (*Skip phones already in the database*, on by default) skips phones whose number or IMEI already exists or repeats within the file, together with their history – re-importing the same file creates no copies.
   * A summary lists imported phones, skipped duplicates and phones with an invalid IMEI.
 
 ### 2.10. Database Backup & Restore
 Under **`⚙️ Opcje bazy ▾`**:
 * **`💾 Utwórz kopię zapasową bazy (.db)`** – exports an encrypted point-in-time snapshot of the database, together with a key file saved next to it (`<name>.keys.json`). **Keep both files together** – the backup cannot be opened on another computer without the key file.
-* **`🔄 Przywróć bazę z pliku (.db)`** – restores all database tables from a backup created by this application, or from an old unencrypted backup made by a previous version.
+* **`🔄 Przywróć bazę z pliku (.db)`** – restores all database tables from a backup created by this application, or from an old unencrypted backup made by a previous version (asks for confirmation, as current data is replaced).
+
+Safeguards:
+* A backup cannot be saved over the application's own files (`telefony.db`, `keys.json`), and the database cannot be restored from itself – a message is shown and nothing is changed.
+* If saving a backup fails (e.g. a USB drive is removed), an older backup with the same name stays intact.
 
 ### 2.11. Users, Roles, Passwords & Recovery Code
 There are two roles:
@@ -318,7 +372,7 @@ There are two roles:
 | **Administrator** | Everything, including user and recovery code management |
 | **User** | Devices, protocols, import/export, backups and changing their own password |
 
-The account created on first run is an administrator. Administrators are marked *(administrator)* next to the user name on the top bar.
+The account created on first run is an administrator. Administrators are marked *(administrator)* next to the user name in the top-left corner.
 
 Under **`⚙️ Opcje bazy ▾`**:
 * **`🔑 Zmień hasło`** – change the signed-in user's password (current password required). Available to everyone.
@@ -332,6 +386,16 @@ Administrator options are greyed out for regular users.
 
 > Roles are cryptographically bound to each entry in `keys.json` – editing a role by hand (e.g. in Notepad) makes sign-in to that account fail.
 
+### 2.12. Keyboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| **Ctrl+S** | Saves the device form (not in the trash view) |
+| **Ctrl+F** | Jumps to the search box and selects its content |
+| **Enter** | Signs in (sign-in window) or creates the account (first-run window) |
+| **Esc** | Closes a dialog; in the sign-in and first-run windows it exits the application |
+| **Double-click** a history entry | Opens the note editor for that entry |
+
 ---
 
 ## 3. Troubleshooting
@@ -340,8 +404,16 @@ Administrator options are greyed out for regular users.
   Make sure a file with the same name is not open in Excel, Word or Adobe Acrobat Reader.
 * **"Nieprawidłowy login lub hasło" (Invalid login or password):**  
   Check Caps Lock. If the password is forgotten, use **`Nie pamiętam hasła`** with the recovery code (section 1.4).
+* **"Program jest już uruchomiony" (The program is already running):**  
+  Switch to the open window on the taskbar. If no window is visible (e.g. the application stopped responding), end the `BazaTelefonow.exe` process in Task Manager and start the application again.
+* **"Program jest już skonfigurowany" (Already configured) when creating the administrator account:**  
+  The administrator account was already created in another window. Start the application again and sign in with that account.
 * **"Plik bazy jest zablokowany" (Database file is locked) on first run:**  
-  Another program is using `telefony.db`. Close it (e.g. DB Browser for SQLite or a second app window) and click **`Utwórz konto`** again – the existing database stays untouched. If it persists, add `%APPDATA%\BazaTelefonow` to your antivirus exclusions.
+  Another program is using `telefony.db`. Close it (e.g. DB Browser for SQLite) and click **`Utwórz konto`** again – the existing database stays untouched. If it persists, add `%APPDATA%\BazaTelefonow` to your antivirus exclusions.
+* **"Nieprawidłowe miejsce zapisu" (Invalid save location) when creating a backup:**  
+  The application's own database or key file was selected. Save the backup in another folder, e.g. Documents, a USB drive or a network drive.
+* **"Nieprawidłowy plik" (Invalid file) when restoring:**  
+  The application's current database was selected instead of a backup file. Choose a backup file (e.g. `backup_telefony_….db`).
 * **"Brak pliku kluczy" (Key file missing) on start:**  
   `keys.json` was deleted or moved. Copy the `*.keys.json` file from your latest backup into `%APPDATA%\BazaTelefonow\` and rename it to `keys.json`.
 * **Moving to a new computer:**  
