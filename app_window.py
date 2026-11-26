@@ -103,13 +103,23 @@ class Column:
     width: int
     min_width: int = 20
     stretch: bool = True
+    anchor: str = tk.W
 
 
 PHONE_COLUMNS: tuple[Column, ...] = (
     Column("nr_tel", "Nr telefonu", 115, 90, stretch=False),
     Column("uzytkownik", "Użytkownik", 135, 100),
     Column("model", "Model", 125, 90),
+    Column("protokol", "Protokół", 70, 60, stretch=False, anchor=tk.CENTER),
 )
+PROTOCOL_MARK = "✔"
+
+PROTOCOL_FILTERS: dict[str, Optional[bool]] = {
+    "Protokół: wszystkie": None,
+    "✔ Z protokołem": True,
+    "Bez protokołu": False,
+}
+PROTOCOL_FILTER_ALL = "Protokół: wszystkie"
 HISTORY_COLUMNS: tuple[Column, ...] = (
     Column("data", "Data", 120, stretch=False),
     Column("kategoria", "Kategoria", 125, stretch=False),
@@ -149,7 +159,13 @@ def _create_tree(
     )
     for column in columns:
         tree.heading(column.key, text=column.title, command=lambda k=column.key: on_heading_click(k))
-        tree.column(column.key, width=column.width, minwidth=column.min_width, stretch=column.stretch)
+        tree.column(
+            column.key,
+            width=column.width,
+            minwidth=column.min_width,
+            stretch=column.stretch,
+            anchor=column.anchor,
+        )
 
     tree.tag_configure(TAG_EVEN, background=Palette.BG_CARD)
     tree.tag_configure(TAG_ODD, background=Palette.BG_ROW_ALT)
@@ -221,6 +237,7 @@ class PhoneDatabaseApp(tk.Tk):
         self.selected_phone_id: Optional[int] = None
         self.show_deleted_var = tk.BooleanVar(value=False)
         self.only_damaged_var = tk.BooleanVar(value=False)
+        self.protocol_filter_var = tk.StringVar(value=PROTOCOL_FILTER_ALL)
         self.search_var = tk.StringVar()
         self.var_protocol = tk.BooleanVar(value=False)
         self.equipment_vars = {option: tk.BooleanVar(value=False) for option in EQUIPMENT_OPTIONS}
@@ -723,19 +740,26 @@ class PhoneDatabaseApp(tk.Tk):
         query = self.search_var.get().strip()
         in_trash = self.show_deleted_var.get()
         only_damaged = self.only_damaged_var.get()
-        rows = db.search_phones(query, show_deleted=in_trash, only_damaged=only_damaged)
+        protocol = PROTOCOL_FILTERS.get(self.protocol_filter_var.get())
+        rows = db.search_phones(
+            query, show_deleted=in_trash, only_damaged=only_damaged, protocol=protocol
+        )
 
         self.tree.delete(*self.tree.get_children())
         self._warning_items = set()
-        for phone_id, nr_tel, user, model, is_damaged in rows:
+        for phone_id, nr_tel, user, model, is_damaged, has_protocol in rows:
             item = str(phone_id)
             if is_damaged:
                 self._warning_items.add(item)
-            self.tree.insert("", tk.END, iid=item, values=(nr_tel, user or NO_USER, model))
+            protocol_mark = PROTOCOL_MARK if has_protocol else ""
+            self.tree.insert(
+                "", tk.END, iid=item, values=(nr_tel, user or NO_USER, model, protocol_mark)
+            )
 
         _apply_sort(self.tree, PHONE_COLUMNS, self._phone_sort)
         _apply_row_tags(self.tree, self._warning_items)
-        self._update_counter(len(rows), bool(query) or only_damaged, in_trash)
+        filtered = bool(query) or only_damaged or protocol is not None
+        self._update_counter(len(rows), filtered, in_trash)
 
     def _update_counter(self, found: int, filtered: bool, in_trash: bool) -> None:
         total = db.get_phones_count(show_deleted=in_trash)
@@ -1095,6 +1119,7 @@ class PhoneDatabaseApp(tk.Tk):
         self._close_child_windows()
         self.search_var.set("")
         self.only_damaged_var.set(False)
+        self.protocol_filter_var.set(PROTOCOL_FILTER_ALL)
         if self.show_deleted_var.get():
             self.show_deleted_var.set(False)
             self._in_trash = False

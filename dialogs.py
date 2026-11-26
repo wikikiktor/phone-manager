@@ -550,7 +550,7 @@ class ProtocolDialog(BaseDialog):
     def _load_phones(self) -> None:
         labels = []
         selected_index = 0
-        for index, (phone_id, nr_tel, user, _model, _damaged) in enumerate(db.search_phones("")):
+        for index, (phone_id, nr_tel, user, _model, _damaged, _protocol) in enumerate(db.search_phones("")):
             self._phone_ids.append(phone_id)
             labels.append(f"{nr_tel} | {user or '[Brak użytkownika]'}")
             if phone_id == self.initial_phone_id:

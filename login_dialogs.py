@@ -592,7 +592,7 @@ class RemoveUserDialog(BaseDialog):
         if not _require_admin(self.session, self):
             return
         username = self._usernames[self.user_combo.current()]
-        if username == self.session.username:  # zabezpieczenie: nie można usunąć samego siebie
+        if username == self.session.username:
             return
         if not messagebox.askyesno(
             "Potwierdzenie", f"Czy na pewno usunąć użytkownika „{username}”?", parent=self
