@@ -595,13 +595,7 @@ def _like_pattern(text: str) -> str:
     return f"%{escaped}%"
 
 
-def search_phones(
-    query_str: str,
-    show_deleted: bool = False,
-    only_damaged: bool = False,
-    protocol: bool | None = None,
-) -> list[tuple]:
-    """protocol: None = wszystkie, True = tylko z protokołem, False = tylko bez protokołu."""
+def search_phones(query_str: str, show_deleted: bool = False, only_damaged: bool = False) -> list[tuple]:
     query = query_str.strip()
     conditions: list[str] = []
     params: list[Any] = []
@@ -624,7 +618,6 @@ def search_phones(
             params.append(f"%{digits}%")
 
     where = f"({' OR '.join(conditions)}) AND " if conditions else ""
-    protocol_flag = None if protocol is None else int(protocol)
 
     with _cursor() as cursor:
         cursor.connection.create_function("PL_LOWER", 1, _sql_lower)
@@ -636,10 +629,9 @@ def search_phones(
             FROM telefony
             WHERE {where}COALESCE(czy_usuniety, 0) = ?
             AND (? = 0 OR COALESCE(czy_uszkodzony, 0) = 1)
-            AND (? IS NULL OR COALESCE(czy_protokol, 0) = ?)
             ORDER BY id DESC
             """,
-            (*params, int(show_deleted), int(only_damaged), protocol_flag, protocol_flag),
+            (*params, int(show_deleted), int(only_damaged)),
         )
         return cursor.fetchall()
 
