@@ -417,6 +417,59 @@ class RecoveryDialog(BaseDialog):
         if self.on_success is not None:
             self.on_success(username)
 
+class BackupKeysDialog(BaseDialog):
+    def __init__(self, parent: tk.Misc, keystore: security.KeyStore) -> None:
+        super().__init__(parent, "Plik kluczy kopii zapasowej")
+        self.keystore = keystore
+        self.master_key: Optional[bytes] = None
+
+        form = ttk.Frame(self.body)
+        form.pack(fill=tk.BOTH, expand=True)
+        form.columnconfigure(1, weight=1)
+        ttk.Label(
+            form,
+            text=(
+                "Kopia jest zaszyfrowana kluczem z innej instalacji programu.\n"
+                "Podaj login i hasło, którymi logowano się, gdy powstała kopia,\n"
+                "albo kod awaryjny z tamtej instalacji."
+            ),
+            justify=tk.LEFT,
+        ).grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 8))
+        self.username_entry = _add_field(form, 1, "Login:")
+        self.password_entry = _add_field(form, 2, "Hasło:", secret=True)
+        ttk.Label(form, text="— albo —", foreground=HINT_COLOR).grid(
+            row=3, column=0, columnspan=2, pady=2
+        )
+        self.code_entry = _add_field(form, 4, "Kod awaryjny:")
+
+        self._add_button_bar("🔓 Odblokuj", self.unlock)
+        self.bind("<Return>", lambda _event: self.unlock())
+        self.username_entry.focus_set()
+        self._show(460, 280)
+
+    def unlock(self) -> None:
+        code = self.code_entry.get().strip()
+        username = self.username_entry.get()
+        try:
+            if code:
+                self.master_key = self.keystore.unlock_with_recovery_code(code)
+            elif username.strip():
+                self.master_key = self.keystore.unlock(username, self.password_entry.get())
+            else:
+                messagebox.showwarning(
+                    "Brak danych", "Wpisz login i hasło albo kod awaryjny.", parent=self
+                )
+                return
+        except security.InvalidCredentials:
+            messagebox.showerror(
+                "Błędne dane",
+                "Nieprawidłowy kod awaryjny." if code else "Nieprawidłowy login lub hasło.",
+                parent=self,
+            )
+            self.password_entry.delete(0, tk.END)
+            return
+        self.destroy()
+
 
 # ---------------------------------------------------------------------------
 # Zarządzanie użytkownikami (z okna głównego)

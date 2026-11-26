@@ -323,19 +323,47 @@ def _table_counts(conn: sqlite3.Connection) -> dict[str, int]:
     return {table: conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0] for table in tables}
 
 
-def _export_plain_to_encrypted(plain_path: str | Path, encrypted_path: str | Path, key: bytes) -> None:
-    _retry_if_locked(Path(encrypted_path).unlink, True)  
-    with closing(sqlite3.connect(str(plain_path))) as plain:
-        plain.execute(
+def _reencrypt(
+    source_path: str | Path,
+    source_key: bytes | None,
+    encrypted_path: str | Path,
+    key: bytes,
+) -> None:
+    _retry_if_locked(Path(encrypted_path).unlink, True)
+    if source_key is None:
+        source = sqlite3.connect(str(source_path))
+    else:
+        source = _connect_encrypted(source_path, source_key)
+    with closing(source):
+        source.execute(
             f"ATTACH DATABASE ? AS encrypted KEY \"x'{key.hex()}'\"", (str(encrypted_path),)
         )
-        plain.execute("SELECT sqlcipher_export('encrypted')")
-        plain.execute("DETACH DATABASE encrypted")
-        expected = _table_counts(plain)
+        source.execute("SELECT sqlcipher_export('encrypted')")
+        source.execute("DETACH DATABASE encrypted")
+        expected = _table_counts(source)
 
     with closing(_connect_encrypted(encrypted_path, key)) as encrypted:
         if _table_counts(encrypted) != expected:
             raise DatabaseError("Weryfikacja zaszyfrowanej kopii nie powiodła się.")
+
+
+def _export_plain_to_encrypted(plain_path: str | Path, encrypted_path: str | Path, key: bytes) -> None:
+    _reencrypt(plain_path, None, encrypted_path, key)
+
+
+def opens_with_key(path: str | Path, key: bytes) -> bool:
+    try:
+        with closing(_connect_encrypted(path, key)) as conn:
+            _verify_readable(conn)
+        return True
+    except DatabaseError:
+        return False
+
+
+def backup_needs_keys_file(backup_path: str | Path) -> bool:
+    if _db_key is None:
+        raise RuntimeError("Baza jest zablokowana - najpierw się zaloguj.")
+    return not is_plain_database(backup_path) and not opens_with_key(backup_path, _db_key)
 
 
 def encrypt_existing_database(
@@ -1025,7 +1053,7 @@ def backup_database(dest_path: str | Path) -> Path:
     return keys_copy
 
 
-def restore_database(backup_path: str | Path) -> None:
+def restore_database(backup_path: str | Path, backup_key: bytes | None = None) -> None:
     if _db_key is None:
         raise RuntimeError("Baza jest zablokowana - najpierw się zaloguj.")
     if _is_program_file(backup_path):
@@ -1036,11 +1064,18 @@ def restore_database(backup_path: str | Path) -> None:
     temporary: Path | None = None
     source_path: str | Path = backup_path
     if is_plain_database(backup_path):
-        temporary = Path(DB_NAME).with_suffix(".restore.tmp")
-        _export_plain_to_encrypted(backup_path, temporary, _db_key)
-        source_path = temporary
+        source_key: bytes | None = None
+    elif backup_key is not None and backup_key != _db_key:
+        source_key = backup_key
+    else:
+        source_key = _db_key
 
     try:
+        if source_key != _db_key:
+            temporary = Path(DB_NAME).with_suffix(".restore.tmp")
+            _reencrypt(backup_path, source_key, temporary, _db_key)
+            source_path = temporary
+
         with closing(_connect_encrypted(source_path, _db_key)) as source:
             _verify_readable(source)
             with closing(get_connection()) as target:

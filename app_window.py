@@ -8,6 +8,7 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Any, Optional
 
 import db
+import security
 from dialogs import (
     AddEventDialog,
     AddNoteDialog,
@@ -17,6 +18,7 @@ from dialogs import (
 )
 from login_dialogs import (
     AddUserDialog,
+    BackupKeysDialog,
     ChangePasswordDialog,
     RemoveUserDialog,
     Session,
@@ -1235,6 +1237,51 @@ class PhoneDatabaseApp(tk.Tk):
                 parent=self,
             )
 
+    def _ask_backup_key(self, backup_path: str) -> Optional[bytes]:
+        expected = db.backup_keys_path(backup_path)
+        messagebox.showinfo(
+            "Potrzebny plik kluczy",
+            "Ta kopia jest zaszyfrowana innym kluczem niż bieżąca baza.\n\n"
+            "W następnym oknie wskaż plik kluczy zapisany razem z kopią:\n"
+            f"{expected.name}",
+            parent=self,
+        )
+        while True:
+            keys_path = filedialog.askopenfilename(
+                parent=self,
+                title="Wybierz plik kluczy kopii zapasowej (*.keys.json)",
+                initialdir=str(expected.parent),
+                initialfile=expected.name if expected.exists() else "",
+                filetypes=[("Plik kluczy (*.json)", "*.json"), ("Wszystkie pliki", "*.*")],
+            )
+            if not keys_path:
+                return None
+
+            keystore = security.KeyStore(keys_path)
+            try:
+                valid = keystore.is_initialized()
+            except Exception:
+                valid = False
+            if not valid:
+                messagebox.showerror(
+                    "Nieprawidłowy plik", "Wybrany plik nie jest plikiem kluczy programu.",
+                    parent=self,
+                )
+                continue
+
+            dialog = BackupKeysDialog(self, keystore)
+            self.wait_window(dialog)
+            if dialog.master_key is None:
+                return None
+            if db.opens_with_key(backup_path, dialog.master_key):
+                return dialog.master_key
+            messagebox.showerror(
+                "Plik kluczy nie pasuje",
+                "Ten plik kluczy nie pasuje do wybranej kopii zapasowej.\n"
+                "Wybierz plik *.keys.json zapisany razem z tą kopią.",
+                parent=self,
+            )
+
     def restore_db_backup(self) -> None:
         message = (
             "UWAGA: Ta operacja ZASTĄPI wszystkie obecne dane w programie danymi z wybranego "
@@ -1252,7 +1299,18 @@ class PhoneDatabaseApp(tk.Tk):
             return
 
         try:
-            db.restore_database(file_path)
+            needs_keys = db.backup_needs_keys_file(file_path)
+        except Exception:
+            needs_keys = False  # błąd pliku zgłosi restore_database poniżej
+
+        backup_key: Optional[bytes] = None
+        if needs_keys:
+            backup_key = self._ask_backup_key(file_path)
+            if backup_key is None:
+                return
+
+        try:
+            db.restore_database(file_path, backup_key)
         except db.ProtectedFileError as error:
             messagebox.showerror("Nieprawidłowy plik", str(error), parent=self)
             return
