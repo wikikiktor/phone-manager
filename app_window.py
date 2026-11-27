@@ -1,18 +1,22 @@
 from __future__ import annotations
 
+import logging
 import tkinter as tk
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from tkinter import font as tkfont
 from typing import Any, Optional
 
+import auto_backup
 import db
 import security
 from dialogs import (
     AddEventDialog,
     AddNoteDialog,
+    AutoBackupDialog,
     EmployerDialog,
     ExcelImportDialog,
     ProtocolDialog,
@@ -142,7 +146,7 @@ class SortState:
 
 
 def _timestamp() -> str:
-    return datetime.now().strftime("%Y%m%d_%H%M")  # noqa: DTZ005
+    return datetime.now().strftime("%Y%m%d_%H%M")
 
 
 def _create_tree(
@@ -202,6 +206,11 @@ def _apply_row_tags(tree: ttk.Treeview, warning_items: Iterable[str] = ()) -> No
             tag = TAG_EVEN if index % 2 == 0 else TAG_ODD
         tree.item(item, tags=(tag,))
 
+logger = logging.getLogger(__name__)
+
+AUTO_BACKUP_FIRST_CHECK_MS = 5_000          
+AUTO_BACKUP_CHECK_INTERVAL_MS = 30 * 60_000  
+
 
 # ---------------------------------------------------------------------------
 # Okno główne
@@ -244,6 +253,8 @@ class PhoneDatabaseApp(tk.Tk):
         self._warning_items: set[str] = set()
         self._in_trash = False
         self._prompting = False
+        self._auto_backup_job: Optional[str] = None
+        self._auto_backup_error_shown = False
 
         db.init_db()
         self._build_ui()
@@ -253,6 +264,7 @@ class PhoneDatabaseApp(tk.Tk):
         self.search_var.trace_add("write", lambda *_args: self.load_phone_list())
         self.load_phone_list()
         self.deiconify()
+        self._schedule_auto_backup(AUTO_BACKUP_FIRST_CHECK_MS)
 
     # =======================================================================
     # Style
@@ -452,9 +464,14 @@ class PhoneDatabaseApp(tk.Tk):
             label="💾 Utwórz kopię zapasową bazy (.db)", command=self.create_db_backup
         )
         self.db_menu.add_command(label="🔄 Przywróć bazę z pliku (.db)", command=self.restore_db_backup)
+        self._admin_menu_items: list[int] = []
+        self.db_menu.add_command(
+            label="⏱️ Automatyczna kopia zapasowa (administrator)",
+            command=self.open_auto_backup_settings,
+        )
+        self._admin_menu_items.append(self.db_menu.index(tk.END))
         self.db_menu.add_separator()
         self.db_menu.add_command(label="🔑 Zmień hasło", command=self.open_change_password)
-        self._admin_menu_items: list[int] = []
         for label, command in (
             ("👥 Dodaj użytkownika (administrator)", self.open_add_user),
             ("🚫 Usuń użytkownika (administrator)", self.open_remove_user),
@@ -1133,6 +1150,7 @@ class PhoneDatabaseApp(tk.Tk):
         self.load_phone_list()
         self.deiconify()
         self.entries["model"].focus_set()
+        self._schedule_auto_backup(AUTO_BACKUP_FIRST_CHECK_MS)
 
     def _close_child_windows(self) -> None:
         for widget in self.winfo_children():
@@ -1141,6 +1159,56 @@ class PhoneDatabaseApp(tk.Tk):
 
     def open_employer_dialog(self) -> None:
         EmployerDialog(self)
+
+    # =======================================================================
+    # Automatyczna kopia zapasowa
+    # =======================================================================
+
+    def open_auto_backup_settings(self) -> None:
+        if not self._require_admin():
+            return
+        AutoBackupDialog(
+            self,
+            on_saved=lambda: self._schedule_auto_backup(AUTO_BACKUP_FIRST_CHECK_MS),
+        )
+
+    def _schedule_auto_backup(self, delay_ms: int) -> None:
+        if self._auto_backup_job is not None:
+            self.after_cancel(self._auto_backup_job)
+        self._auto_backup_job = self.after(delay_ms, self._run_auto_backup)
+
+    def _run_auto_backup(self) -> None:
+        self._auto_backup_job = None
+        try:
+            dest = auto_backup.run_if_due() 
+        except Exception as error:
+            logger.warning("Automatyczna kopia zapasowa nie powiodła się", exc_info=True)
+            if not self._auto_backup_error_shown:
+                self._auto_backup_error_shown = True
+                messagebox.showwarning(
+                    "Automatyczna kopia zapasowa",
+                    "Nie udało się utworzyć automatycznej kopii zapasowej:\n"
+                    f"{error}\n\n"
+                    "Sprawdź, czy folder na kopie jest dostępny (np. podłączony pendrive "
+                    "lub dysk sieciowy). Program spróbuje ponownie za 30 minut.",
+                    parent=self,
+                )
+        else:
+            if dest is not None:
+                self._auto_backup_error_shown = False
+                self._set_auto_backup_status(dest)
+        self._schedule_auto_backup(AUTO_BACKUP_CHECK_INTERVAL_MS)
+
+    def _set_auto_backup_status(self, dest: Path) -> None:
+        previous = self.lbl_count.cget("text")
+        message = f"💾 Utworzono automatyczną kopię: {dest.name}"
+        self.lbl_count.configure(text=message)
+
+        def restore() -> None:
+            if self.lbl_count.cget("text") == message:  
+                self.lbl_count.configure(text=previous)
+
+        self.after(8_000, restore)
 
     def open_change_password(self) -> None:
         ChangePasswordDialog(self, self.session)

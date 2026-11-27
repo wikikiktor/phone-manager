@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 import openpyxl
 
+import auto_backup
 import db
 import protocol_generator
 
@@ -483,6 +484,189 @@ class EmployerDialog(BaseDialog):
             "Zapisano", "Dane pracodawcy zostały pomyślnie zaktualizowane.", parent=self
         )
         self.destroy()
+
+
+# ---------------------------------------------------------------------------
+# Automatyczna kopia zapasowa
+# ---------------------------------------------------------------------------
+
+class AutoBackupDialog(BaseDialog):
+    HINT_COLOR = "#64748B"
+    DATE_FORMAT = "%Y-%m-%d %H:%M"
+
+    def __init__(self, parent: tk.Misc, on_saved: Callback = None) -> None:
+        super().__init__(parent, "Automatyczna kopia zapasowa")
+        self.on_saved = on_saved
+        self.settings = auto_backup.load_settings()
+
+        self.enabled_var = tk.BooleanVar(value=self.settings.enabled)
+        self.folder_var = tk.StringVar(value=self.settings.folder)
+        self.interval_var = tk.StringVar(value=str(self.settings.interval_days))
+        self.keep_var = tk.StringVar(value=str(self.settings.keep_count))
+
+        form = self.body
+        form.columnconfigure(1, weight=1)
+
+        ttk.Checkbutton(
+            form,
+            text="Włącz automatyczną kopię zapasową",
+            variable=self.enabled_var,
+            command=self._update_state,
+        ).grid(row=0, column=0, columnspan=3, sticky=tk.W, pady=(0, 10))
+
+        ttk.Label(form, text="Folder na kopie:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        self.folder_entry = ttk.Entry(form, textvariable=self.folder_var, width=42)
+        self.folder_entry.grid(row=1, column=1, sticky=tk.EW, pady=5, padx=(6, 4))
+        self.folder_button = ttk.Button(
+            form, text="📁 Wybierz…", style="Secondary.TButton", command=self._choose_folder
+        )
+        self.folder_button.grid(row=1, column=2, pady=5)
+
+        ttk.Label(form, text="Kopia co (dni):").grid(row=2, column=0, sticky=tk.W, pady=5)
+        self.interval_spin = ttk.Spinbox(
+            form,
+            textvariable=self.interval_var,
+            from_=auto_backup.MIN_INTERVAL_DAYS,
+            to=auto_backup.MAX_INTERVAL_DAYS,
+            width=6,
+        )
+        self.interval_spin.grid(row=2, column=1, sticky=tk.W, pady=5, padx=(6, 0))
+
+        ttk.Label(form, text="Przechowuj kopii:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        self.keep_spin = ttk.Spinbox(
+            form,
+            textvariable=self.keep_var,
+            from_=auto_backup.MIN_KEEP_COUNT,
+            to=auto_backup.MAX_KEEP_COUNT,
+            width=6,
+        )
+        self.keep_spin.grid(row=3, column=1, sticky=tk.W, pady=5, padx=(6, 0))
+
+        ttk.Label(
+            form,
+            text=(
+                "Po przekroczeniu tej liczby najstarsze kopie automatyczne są usuwane.\n"
+                "Kopia powstaje, gdy program jest otwarty. Najlepiej wybierz inny dysk,\n"
+                "pendrive albo dysk sieciowy."
+            ),
+            foreground=self.HINT_COLOR,
+            justify=tk.LEFT,
+        ).grid(row=4, column=0, columnspan=3, sticky=tk.W, pady=(4, 8))
+
+        self.status_label = ttk.Label(form, justify=tk.LEFT)
+        self.status_label.grid(row=5, column=0, columnspan=3, sticky=tk.W)
+        self._update_status()
+
+        bar = ttk.Frame(form)
+        bar.grid(row=6, column=0, columnspan=3, sticky=tk.EW, pady=(14, 0))
+        self.backup_now_button = ttk.Button(
+            bar, text="💾 Zrób kopię teraz", style="Secondary.TButton", command=self.backup_now
+        )
+        self.backup_now_button.pack(side=tk.LEFT)
+        ttk.Button(bar, text="Anuluj", style="Secondary.TButton", command=self.destroy).pack(
+            side=tk.RIGHT, padx=4
+        )
+        ttk.Button(bar, text="💾 Zapisz", style="Primary.TButton", command=self.save).pack(
+            side=tk.RIGHT, padx=4
+        )
+
+        self._update_state()
+        self._show(560, 330)
+
+    # --- pomocnicze --------------------------------------------------------
+
+    def _update_state(self) -> None:
+        state = tk.NORMAL if self.enabled_var.get() else tk.DISABLED
+        for widget in (
+            self.folder_entry,
+            self.folder_button,
+            self.interval_spin,
+            self.keep_spin,
+            self.backup_now_button,
+        ):
+            widget.configure(state=state)
+
+    def _update_status(self) -> None:
+        last = self.settings.last_backup_time
+        next_time = self.settings.next_backup_time
+        lines = [
+            "Ostatnia kopia: " + (last.strftime(self.DATE_FORMAT) if last else "jeszcze nie wykonano")
+        ]
+        if self.settings.enabled:
+            lines.append(
+                "Następna kopia: "
+                + (next_time.strftime(self.DATE_FORMAT) if next_time else "przy najbliższym sprawdzeniu")
+            )
+        self.status_label.configure(text="\n".join(lines))
+
+    def _choose_folder(self) -> None:
+        folder = filedialog.askdirectory(
+            parent=self, title="Wybierz folder na kopie zapasowe", initialdir=self.folder_var.get()
+        )
+        if folder:
+            self.folder_var.set(str(Path(folder)))
+
+    def _read_form(self) -> Optional[auto_backup.AutoBackupSettings]:
+        try:
+            interval = int(self.interval_var.get().strip())
+            keep = int(self.keep_var.get().strip())
+        except ValueError:
+            messagebox.showwarning(
+                "Błędne dane", "Liczba dni i liczba kopii muszą być liczbami całkowitymi.",
+                parent=self,
+            )
+            return None
+
+        folder = self.folder_var.get().strip()
+        enabled = self.enabled_var.get()
+        if enabled:
+            problems = auto_backup.validate(interval, keep, folder)
+            if problems:
+                messagebox.showwarning("Błędne dane", "\n".join(problems), parent=self)
+                return None
+            try:
+                Path(folder).mkdir(parents=True, exist_ok=True)
+            except OSError as error:
+                messagebox.showerror(
+                    "Niedostępny folder",
+                    f"Nie można utworzyć ani otworzyć folderu:\n{folder}\n\n{error}",
+                    parent=self,
+                )
+                return None
+
+        self.settings.enabled = enabled
+        self.settings.folder = folder or self.settings.folder
+        self.settings.interval_days = interval
+        self.settings.keep_count = keep
+        return self.settings
+
+    # --- akcje -------------------------------------------------------------
+
+    def save(self) -> None:
+        settings = self._read_form()
+        if settings is None:
+            return
+        auto_backup.save_settings(settings)
+        messagebox.showinfo(
+            "Zapisano",
+            "Automatyczna kopia zapasowa jest "
+            + ("włączona." if settings.enabled else "wyłączona."),
+            parent=self,
+        )
+        self.destroy()
+        _run_callback(self.on_saved)
+
+    def backup_now(self) -> None:
+        settings = self._read_form()
+        if settings is None:
+            return
+        try:
+            dest = auto_backup.run_backup(settings)  
+        except Exception as error:
+            messagebox.showerror("Błąd", f"Nie udało się utworzyć kopii:\n{error}", parent=self)
+            return
+        self._update_status()
+        messagebox.showinfo("Kopia zapasowa", f"Utworzono kopię:\n{dest}", parent=self)
 
 
 # ---------------------------------------------------------------------------
